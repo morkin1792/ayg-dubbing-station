@@ -1,0 +1,3733 @@
+<!doctype html>
+<!-- A single static file: no build, no secrets. Serve it (for example
+     python3 -m http.server) rather than opening it directly: on a file://
+     page Chrome blocks blob workers (ffmpeg) and IndexedDB (auto-resume).
+     The page says so when that happens. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dubbing Station</title>
+<!-- A drawn microphone, not the 🎤 emoji: Chrome rasterises an SVG
+     favicon without the colour-emoji font, so an emoji lands white. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='25' y='7' width='14' height='28' rx='7' fill='%232f6fed'/%3E%3Cpath d='M17 30a15 15 0 0 0 30 0' fill='none' stroke='%231b4fc0' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M32 45v9M23 56h18' fill='none' stroke='%231b4fc0' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<!-- Inter for the interface, Atkinson Hyperlegible for the line being read
+     aloud (designed for legibility at a glance). Both fall back to the
+     system stack if the font CDN is unreachable. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Inter:wght@400;500;600;700&display=swap">
+<script>
+// Applied before first paint: no flash of the wrong theme.
+try {
+  var savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'light' || savedTheme === 'dark')
+    document.documentElement.dataset.theme = savedTheme;
+} catch (error) { /* storage blocked: follow the system */ }
+</script>
+<style>
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f7f8fb; --sunk: #eef1f5;
+  --line: #e2e6ec; --line-2: #d2d8e1;
+  --text: #10141b; --text-2: #4a5361; --text-3: #7d8696;
+  --accent: #2f6fed; --accent-hi: #2459c9; --accent-soft: #e7eeff; --accent-ink: #1c4fc2;
+  --rec: #df2a3c; --rec-soft: #ffe7ea;
+  --ok: #129a5c; --ok-soft: #e1f5ea;
+  --warn: #b97800; --warn-soft: #fff3d9;
+  --bad: #d4323f; --bad-soft: #ffe8ea;
+  /* Timeline clips: attached files in blues, takes recorded here in greens; each
+     file gets the next shade of its kind so neighbouring files never blend. */
+  --file-0: #2f6fed; --file-1: #8b5cf6; --file-2: #0891d1;
+  --take-0: #0c9a8a; --take-1: #65a30d; --take-2: #059669;
+  --sel: rgba(47,111,237,.20); --playhead: #10141b;
+  --shadow: 0 1px 2px rgba(15,23,42,.05), 0 2px 6px rgba(15,23,42,.06);
+  --shadow-lg: 0 18px 48px rgba(15,23,42,.18);
+  --radius: 12px; --radius-sm: 8px;
+  --ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --read: 'Atkinson Hyperlegible', 'Inter', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --read-size: 26px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0f14; --panel: #131820; --panel-2: #181e28; --sunk: #0f131a;
+    --line: #222935; --line-2: #2d3542;
+    --text: #e8ecf2; --text-2: #a6afbd; --text-3: #6e7888;
+    --accent: #5d97ff; --accent-hi: #7eadff; --accent-soft: rgba(93,151,255,.14); --accent-ink: #a3c2ff;
+    --rec: #ff4f60; --rec-soft: rgba(255,79,96,.15);
+    --ok: #36d49a; --ok-soft: rgba(54,212,154,.13);
+    --warn: #f6bd3b; --warn-soft: rgba(246,189,59,.13);
+    --bad: #ff6d7c; --bad-soft: rgba(255,109,124,.14);
+    --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
+    --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
+    --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
+    --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c0f14; --panel: #131820; --panel-2: #181e28; --sunk: #0f131a;
+  --line: #222935; --line-2: #2d3542;
+  --text: #e8ecf2; --text-2: #a6afbd; --text-3: #6e7888;
+  --accent: #5d97ff; --accent-hi: #7eadff; --accent-soft: rgba(93,151,255,.14); --accent-ink: #a3c2ff;
+  --rec: #ff4f60; --rec-soft: rgba(255,79,96,.15);
+  --ok: #36d49a; --ok-soft: rgba(54,212,154,.13);
+  --warn: #f6bd3b; --warn-soft: rgba(246,189,59,.13);
+  --bad: #ff6d7c; --bad-soft: rgba(255,109,124,.14);
+  --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
+  --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
+  --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
+  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
+  --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.5 var(--ui);
+       -webkit-font-smoothing: antialiased; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.hidden { display: none !important; }
+[hidden] { display: none !important; }
+/* An icon is never the click target: a button that swaps its icon (play/pause)
+   would otherwise lose a click that started on the old one. */
+button svg { pointer-events: none; }
+svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
+        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.sm { width: 15px; height: 15px; }
+svg.i.lg { width: 22px; height: 22px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line-2);
+      border-bottom-width: 2px; background: var(--panel-2); color: var(--text-2); }
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px;
+       border-radius: var(--radius-sm); border: 1px solid var(--line-2); background: var(--panel);
+       color: var(--text); font-weight: 500; cursor: pointer; white-space: nowrap;
+       transition: background .12s, border-color .12s, color .12s, box-shadow .12s; }
+.btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--text-3); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--text); border-color: transparent; }
+.btn.danger { color: var(--bad); }
+.btn.icon { width: 36px; padding: 0; justify-content: center; }
+.btn.sm { height: 30px; padding: 0 10px; font-size: 13px; }
+.btn.sm.icon { width: 30px; padding: 0; }
+.btn.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.btn .kbd-hint { font: 600 10px/1 var(--mono); opacity: .6; margin-left: 2px; }
+
+/* ── Top bar ───────────────────────────────────────────────────────────── */
+.topbar { position: fixed; inset: 0 0 auto 0; height: 58px; z-index: 20; display: flex; align-items: center;
+          gap: 12px; padding: 0 14px 0 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em;
+         font-size: 15.5px; white-space: nowrap; }
+.brand .logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+               background: linear-gradient(145deg, #3b7cff, #1e4fc4); color: #fff;
+               box-shadow: 0 2px 8px rgba(47,111,237,.35); }
+.brand .logo svg { width: 17px; height: 17px; }
+.crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.crumbs .sep { width: 1px; height: 22px; background: var(--line-2); margin: 0 4px; }
+.crumbs .video { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px;
+        font-size: 11.5px; font-weight: 600; background: var(--sunk); color: var(--text-2); white-space: nowrap; }
+.chip.locale { background: var(--accent-soft); color: var(--accent-ink); }
+.top-actions { display: flex; align-items: center; gap: 4px; }
+.ring { position: relative; width: 38px; height: 38px; flex: none; }
+.ring svg { width: 38px; height: 38px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 4; }
+.ring .track { stroke: var(--line); }
+.ring .fill { stroke: var(--ok); stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
+.ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; }
+.progress-label { font-size: 12.5px; color: var(--text-2); white-space: nowrap; margin-right: 6px; }
+.progress-label b { color: var(--text); }
+.menu { position: relative; }
+.menu-list { position: absolute; right: 0; top: 42px; min-width: 220px; background: var(--panel); border: 1px solid var(--line);
+             border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 6px; z-index: 40; }
+.menu-list button { display: flex; width: 100%; align-items: center; gap: 10px; padding: 9px 10px; border: 0;
+                    background: none; border-radius: 7px; cursor: pointer; text-align: left; }
+.menu-list button:hover { background: var(--sunk); }
+.menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+#railToggle { display: none; }
+
+/* ── Notifications ─────────────────────────────────────────────────────── */
+.banners { position: fixed; top: 66px; left: 50%; transform: translateX(-50%); z-index: 30;
+           width: min(760px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; }
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px 11px 14px; border-radius: var(--radius-sm);
+          background: var(--panel); border: 1px solid var(--bad); border-left-width: 4px; box-shadow: var(--shadow-lg);
+          color: var(--text); animation: drop .18s ease; }
+.banner .msg { flex: 1; }
+.banner .msg a { color: var(--accent); }
+.banner svg.i { color: var(--bad); margin-top: 1px; }
+.banner button { border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 0 2px; }
+.toasts { position: fixed; right: 18px; bottom: 90px; z-index: 30; display: flex; flex-direction: column;
+          gap: 8px; align-items: flex-end; max-width: min(420px, calc(100vw - 36px)); }
+.toast { display: flex; gap: 10px; align-items: flex-start; padding: 11px 14px; border-radius: var(--radius-sm);
+         background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ok);
+         box-shadow: var(--shadow-lg); animation: rise .2s ease; }
+.toast svg.i { color: var(--ok); }
+.toast .btn { flex: none; align-self: center; }
+@keyframes drop { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* ── Load screen ───────────────────────────────────────────────────────── */
+.load { position: fixed; inset: 58px 0 0 0; overflow: auto; display: flex; justify-content: center;
+        padding: 56px 20px 40px; }
+.load-inner { width: min(720px, 100%); }
+.hero { text-align: center; margin-bottom: 28px; }
+.hero .logo { width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 16px; display: grid; place-items: center;
+              background: linear-gradient(145deg, #3b7cff, #1e4fc4); color: #fff; box-shadow: 0 10px 30px rgba(47,111,237,.35); }
+.hero .logo svg { width: 32px; height: 32px; }
+.hero h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.02em; }
+.hero p { margin: 0; color: var(--text-2); font-size: 15.5px; }
+.drop { border: 2px dashed var(--line-2); border-radius: 18px; background: var(--panel); padding: 44px 24px;
+        text-align: center; cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+        box-shadow: var(--shadow); }
+.drop:hover { border-color: var(--accent); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.01); }
+.drop.waiting { opacity: .6; cursor: progress; }
+.drop .big { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center;
+             background: var(--accent-soft); color: var(--accent); }
+.drop .big svg { width: 26px; height: 26px; }
+.drop h2 { margin: 0 0 6px; font-size: 19px; }
+.drop p { margin: 0; color: var(--text-2); }
+.drop .btn { margin-top: 18px; }
+.setup { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+         box-shadow: var(--shadow); }
+.setup h3 { margin: 0; padding: 14px 18px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+            color: var(--text-3); }
+.setup-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.setup-row:first-of-type { border-top: 0; }
+.setup-row .state { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
+                    background: var(--sunk); color: var(--text-3); }
+.setup-row .state.ok { background: var(--ok-soft); color: var(--ok); }
+.setup-row .state.bad { background: var(--bad-soft); color: var(--bad); }
+.setup-row .state.busy { background: var(--accent-soft); color: var(--accent); }
+.setup-row .body { flex: 1; min-width: 0; }
+.setup-row .title { font-weight: 600; }
+.setup-row .sub { color: var(--text-2); font-size: 13px; }
+.bar-track { height: 6px; border-radius: 99px; background: var(--sunk); overflow: hidden; margin-top: 8px; }
+.bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .2s; }
+.field { display: flex; gap: 8px; margin-top: 8px; }
+.input { height: 36px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-2);
+         background: var(--panel-2); color: var(--text); min-width: 0; flex: 1; }
+.input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ── Workspace ─────────────────────────────────────────────────────────── */
+.workspace { --rail-w: 300px; position: fixed; inset: 58px 0 68px 0; display: grid;
+             grid-template-columns: var(--rail-w) 1fr; transition: grid-template-columns .2s ease; }
+.rail { background: var(--panel); border-right: 1px solid var(--line); overflow: hidden auto; min-width: 0;
+        padding: 10px 10px 24px; }
+/* Fold tabs: small arrow tabs on the edge of the scene list and the player. */
+.fold-tab { position: absolute; z-index: 5; display: grid; place-items: center; cursor: pointer; color: var(--text-2);
+            background: var(--panel); border: 1px solid var(--line); }
+.fold-tab:hover { color: var(--accent); }
+.rail-tab { left: 0; top: -66px; width: 22px; height: 52px; border-left: 0;
+            border-radius: 0 10px 10px 0; box-shadow: 4px 0 10px rgba(15,23,42,.06); }
+.dock-tab { right: 24px; top: -22px; width: 52px; height: 22px; border-bottom: 0;
+            border-radius: 10px 10px 0 0; box-shadow: 0 -4px 10px rgba(15,23,42,.06); }
+@media (min-width: 901px) {
+  .workspace.rail-folded { grid-template-columns: 0 1fr; }
+  .workspace.rail-folded .rail { visibility: hidden; padding: 0; border-right: 0; }
+}
+.rail-group { margin-top: 12px; }
+.rail-group:first-child { margin-top: 2px; }
+.rail-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; }
+.rail-head .kind { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.rail-head .name { flex: 1; min-width: 0; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden;
+                   text-overflow: ellipsis; }
+.rail-head .count { font-size: 11px; font-weight: 600; color: var(--text-3); }
+.rail-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 9px;
+            border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); }
+.rail-row:hover { background: var(--sunk); }
+.rail-row.current { background: var(--accent-soft); }
+.rail-row.current .num { color: var(--accent-ink); }
+.rail-row .num { width: 26px; font: 600 12.5px var(--mono); color: var(--text-3); text-align: right; flex: none; }
+.rail-row .txt { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; color: var(--text-2);
+                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rail-row.current .txt { color: var(--text); }
+.rail-row .meta { font-size: 11px; color: var(--text-3); white-space: nowrap; flex: none; }
+.st { width: 18px; height: 18px; flex: none; }
+.st.missing { color: var(--text-3); } .st.unchecked { color: var(--accent); } .st.working { color: var(--accent); }
+.st.ok { color: var(--ok); } .st.mismatch { color: var(--bad); } .st.override, .st.close { color: var(--warn); }
+.st.working { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.focus { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+/* The side space is 40% of what a fixed 980 px column with 34 px padding
+   left, at any width: 60% of the width plus a constant. The dock's version
+   adds its own padding (border-box), so both columns line up. */
+.focus-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 14px 40px; scroll-behavior: smooth; }
+.focus-inner { max-width: calc(60% + 409px); margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.scene-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.scene-title { font-size: 22px; font-weight: 700; letter-spacing: -.015em; margin: 2px 0 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px;
+        font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.pill svg.st { width: 15px; height: 15px; }
+.pill.missing { background: var(--sunk); color: var(--text-2); }
+.pill.unchecked, .pill.working { background: var(--accent-soft); color: var(--accent-ink); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.mismatch { background: var(--bad-soft); color: var(--bad); }
+.pill.override, .pill.close { background: var(--warn-soft); color: var(--warn); }
+.spacer { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--radius-sm); overflow: hidden; }
+.seg button { height: 30px; min-width: 34px; border: 0; background: var(--panel); cursor: pointer; font-weight: 600;
+              color: var(--text-2); padding: 0 9px; }
+.seg button + button { border-left: 1px solid var(--line-2); }
+.seg button:hover { background: var(--panel-2); color: var(--text); }
+.seg button.on { background: var(--accent-soft); color: var(--accent-ink); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.card-head h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--text-3); }
+.card-body { padding: 16px; }
+
+/* The line IS the reading script: big, airy, readable from across a desk. */
+.reading textarea { display: block; width: 100%; border: 0; resize: none; background: transparent; outline: none;
+                    color: var(--text); font: 400 var(--read-size)/1.62 var(--read); padding: 22px 26px 26px;
+                    min-height: 140px; overflow: hidden; letter-spacing: .005em; }
+.reading textarea::placeholder { color: var(--text-3); }
+.head-tools { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.invisible { visibility: hidden; }
+.reading:focus-within { box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); border-color: var(--accent); }
+
+/* The docked player: bar + timeline, pinned under the scrolling page */
+.dock { position: relative; flex: none; background: var(--panel); border-top: 1px solid var(--line);
+        box-shadow: 0 -8px 24px rgba(15,23,42,.07); }
+.dock-fold { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .2s ease; }
+.dock-fold > div { min-height: 0; overflow: hidden; }
+.dock.folded .dock-fold { grid-template-rows: 0fr; }
+.dock.folded .dock-bar { padding-bottom: 0; }
+.dock-inner { max-width: calc(60% + 420px); margin: 0 auto; padding: 8px 14px 12px; }
+.dock-bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding-bottom: 8px; }
+.dock-bar .tsep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+.dock-info { color: var(--text-3); font-size: 12px; margin-right: 8px; white-space: nowrap; }
+.time { font: 600 13px var(--mono); color: var(--text-2); min-width: 116px; padding: 0 6px; }
+.time b { color: var(--text); font-weight: 600; }
+.tl-wrap { position: relative; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.tl-scroll { overflow-x: auto; overflow-y: hidden; position: relative; }
+.tl-canvas { position: sticky; left: 0; display: block; height: 120px; touch-action: none; }
+.tl-empty { padding: 14px; text-align: center; color: var(--text-2); font-size: 13.5px;
+            border: 1px dashed var(--line-2); border-radius: var(--radius-sm); }
+.dropping .tl-empty, .dropping .tl-scroll { background: var(--accent-soft); }
+
+/* Recorder, at the head of the dock */
+.rec { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+.rec-btn { width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer; flex: none; display: grid;
+           place-items: center; background: var(--rec); color: #fff; box-shadow: 0 4px 14px rgba(223,42,60,.35);
+           transition: transform .12s, box-shadow .12s; }
+.rec-btn:hover { transform: scale(1.05); }
+.rec-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.rec-btn .dot { width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.rec-btn.live .dot { width: 12px; height: 12px; border-radius: 3px; }
+.rec-btn.live { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(223,42,60,.12), 0 4px 14px rgba(223,42,60,.35); } }
+.rec-info { display: flex; flex-direction: column; gap: 4px; }
+.rec-label { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.rec-meter { display: flex; align-items: center; gap: 8px; }
+.rec-clock { font: 700 13.5px var(--mono); color: var(--rec); }
+.meter { position: relative; height: 6px; width: 110px; border-radius: 99px; background: var(--sunk); overflow: hidden; }
+.meter .lvl { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px;
+              background: linear-gradient(90deg, var(--ok) 0%, var(--ok) 70%, var(--warn) 85%, var(--bad) 100%);
+              background-size: 110px 100%; transition: width .05s linear; }
+.meter .peak { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text-2); }
+.clip-led { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: var(--sunk);
+            color: var(--text-3); }
+.clip-led.hot { background: var(--bad); color: #fff; }
+.countin { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; pointer-events: none; }
+.countin span { font: 800 180px/1 var(--ui); color: var(--rec); text-shadow: 0 10px 40px rgba(0,0,0,.25);
+                animation: count .9s ease forwards; }
+@keyframes count { from { opacity: 0; transform: scale(1.4); } 25% { opacity: 1; transform: scale(1); } to { opacity: .0; transform: scale(.85); } }
+
+/* Alerts */
+.notes { display: flex; flex-direction: column; gap: 8px; }
+.note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: var(--radius-sm);
+        background: var(--warn-soft); color: var(--text); font-size: 13.5px; }
+.note svg.i { color: var(--warn); margin-top: 1px; }
+
+/* Check result */
+.verdict { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.score { font: 800 44px/1 var(--ui); letter-spacing: -.03em; }
+.score small { font-size: 20px; font-weight: 700; }
+.score.ok { color: var(--ok); } .score.mismatch { color: var(--bad); } .score.override, .score.close { color: var(--warn); }
+.verdict .what { flex: 1; min-width: 220px; }
+.verdict .what b { display: block; font-size: 16px; }
+.verdict .what span { color: var(--text-2); font-size: 13.5px; }
+.gauge { position: relative; height: 8px; border-radius: 99px; background: var(--sunk); margin: 14px 0 4px; }
+.gauge .g-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+.gauge .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text-3); border-radius: 2px; }
+.gauge-labels { position: relative; height: 16px; font-size: 11px; color: var(--text-3); }
+.gauge-labels span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.blink { animation: blink 1s step-start infinite; color: var(--bad); margin-left: 8px; }
+.blink svg.i { width: 26px; height: 26px; }
+@keyframes blink { 50% { opacity: 0; } }
+.diff { margin-top: 16px; padding: 16px 18px; border-radius: var(--radius-sm); background: var(--panel-2);
+        border: 1px solid var(--line); font: 17px/1.9 var(--read); }
+.diff .del { color: var(--ok); background: var(--ok-soft); text-decoration: line-through; border-radius: 4px; padding: 1px 4px; }
+.diff .ins { color: var(--bad); background: var(--bad-soft); border-radius: 4px; padding: 1px 4px; font-weight: 700; }
+.diff .seekable { cursor: pointer; border-radius: 4px; }
+.diff .seekable:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+.diff .now { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+.legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-2); flex-wrap: wrap; }
+.legend .del { color: var(--ok); text-decoration: line-through; } .legend .ins { color: var(--bad); font-weight: 700; }
+.legend .toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text); }
+.legend .toggle input { margin: 0; accent-color: var(--accent); }
+.stt-warn { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--bad); font-weight: 600; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.empty-check { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.empty-check .what { flex: 1; min-width: 220px; color: var(--text-2); }
+.empty-check .what b { display: block; color: var(--text); font-size: 15px; }
+
+/* Bottom bar */
+.bottombar { position: fixed; inset: auto 0 0 0; height: 68px; z-index: 20; display: flex; align-items: center; gap: 10px;
+             padding: 0 16px; background: var(--panel); border-top: 1px solid var(--line); }
+.bottombar .status { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; white-space: nowrap; overflow: hidden;
+                     text-overflow: ellipsis; text-align: center; }
+
+/* Drawer + modal */
+.scrim { position: fixed; inset: 0; background: rgba(8,12,20,.45); z-index: 45; animation: fade .15s ease; }
+@keyframes fade { from { opacity: 0; } }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(430px, 100vw); z-index: 50; background: var(--panel);
+          border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+          animation: slide .2s ease; }
+@keyframes slide { from { transform: translateX(24px); opacity: 0; } }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { margin: 0; font-size: 17px; flex: 1; }
+.drawer-body { overflow-y: auto; padding: 8px 18px 28px; }
+.set-group { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.set-group:last-child { border-bottom: 0; }
+.set-group h4 { margin: 0 0 10px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--text-3); }
+.set-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.set-row .lbl { flex: 1; min-width: 0; }
+.set-row .lbl b { display: block; font-weight: 600; font-size: 14px; }
+.set-row .lbl span { color: var(--text-2); font-size: 12.5px; }
+.switch { position: relative; width: 40px; height: 23px; flex: none; }
+.switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch .knob { position: absolute; inset: 0; border-radius: 99px; background: var(--line-2); transition: background .15s; }
+.switch .knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 17px; height: 17px; border-radius: 50%;
+                       background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s; }
+.switch input:checked + .knob { background: var(--accent); }
+.switch input:checked + .knob::after { transform: translateX(17px); }
+.switch input:focus-visible + .knob { outline: 2px solid var(--accent); outline-offset: 2px; }
+select.input { padding-right: 8px; }
+input[type=range] { accent-color: var(--accent); width: 100%; }
+.modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; }
+.modal-card { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+              box-shadow: var(--shadow-lg); padding: 22px 24px; animation: rise .18s ease; position: relative; z-index: 51; }
+.modal-card h2 { margin: 0 0 14px; font-size: 18px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 18px; align-items: center; font-size: 14px; }
+.keys .k { display: flex; gap: 4px; justify-content: flex-end; }
+
+/* Responsive: the rail becomes a slide-over under 900px. */
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 1fr; }
+  .rail-tab { display: none; }
+  .rail { position: fixed; top: 58px; bottom: 68px; left: 0; width: min(320px, 88vw); z-index: 25;
+          transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow-lg); }
+  .rail.open { transform: none; }
+  #railToggle { display: inline-flex; }
+  .focus-scroll { padding: 18px 6px 30px; }
+  .dock-inner { padding: 8px 6px 10px; }
+  .dock-info { display: none; }
+  .progress-label, .crumbs .chip:not(.locale) { display: none; }
+  .bottombar .status { display: none; }
+  .btn .kbd-hint { display: none; }
+}
+@media (max-width: 600px) {
+  .bottombar .btn .label, .dock .btn .label { display: none; }
+  .bottombar .btn { padding: 0 11px; }
+  .brand .word { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn ghost icon hidden" id="railToggle" title="Scenes" aria-label="Show the scene list"></button>
+  <div class="brand"><span class="logo" id="brandLogo"></span><span class="word">Dubbing Station</span></div>
+  <div class="crumbs" id="crumbs"></div>
+  <div class="top-actions">
+    <span class="progress-label hidden" id="progressLabel"></span>
+    <div class="ring hidden" id="ring" title="Scenes ready to export">
+      <svg viewBox="0 0 38 38"><circle class="track" cx="19" cy="19" r="15"/><circle class="fill" id="ringFill" cx="19" cy="19" r="15" stroke-dasharray="94.25" stroke-dashoffset="94.25"/></svg>
+      <span id="ringText"></span>
+    </div>
+    <button class="btn ghost icon" id="themeBtn"></button>
+    <button class="btn ghost icon" id="keysBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"></button>
+    <button class="btn ghost icon" id="settingsBtn" title="Settings" aria-label="Settings"></button>
+    <div class="menu hidden" id="moreMenu">
+      <button class="btn ghost icon" id="moreBtn" title="More" aria-label="More actions" aria-haspopup="true"></button>
+      <div class="menu-list" id="moreList" hidden>
+        <button id="driveBtn"></button>
+        <hr id="driveSep">
+        <button id="newProjectBtn"></button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="banners" id="banners" role="alert" aria-live="assertive"></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<section class="load" id="load">
+  <div class="load-inner">
+    <div class="hero">
+      <div class="logo" id="heroLogo"></div>
+      <h1>Dubbing Station</h1>
+      <p>Record, check and deliver the narration for your video.</p>
+    </div>
+    <div class="drop" id="dropAny" role="button" tabindex="0" aria-label="Open a job or a saved zip">
+      <div class="big" id="dropIcon"></div>
+      <h2>Drop the job <code>.json</code> to start</h2>
+      <p>or a <code>.zip</code> you saved here, a draft to continue or a finished one to fix.<br>
+         You can drop it anywhere on this page.</p>
+      <button class="btn primary" id="pickBtn" type="button">Choose a file</button>
+    </div>
+    <div class="setup">
+      <h3>Before you start</h3>
+      <div class="setup-row">
+        <div class="state busy" id="ffState"></div>
+        <div class="body">
+          <div class="title">ffmpeg</div>
+          <div class="sub" id="ffSub">Preparing (one time, about 32 MB)…</div>
+          <div class="bar-track" id="ffBarTrack"><div class="bar-fill" id="ffBar"></div></div>
+        </div>
+      </div>
+      <div class="setup-row">
+        <div class="state" id="keyState"></div>
+        <div class="body">
+          <div class="title">Speech key <span class="sub">(AssemblyAI, free)</span></div>
+          <div class="sub" id="keySub">Used to check that each recording matches its line.
+            <a href="https://www.assemblyai.com/dashboard/api-keys" target="_blank" rel="noopener">Get a free key</a></div>
+          <div class="field"><input class="input" id="keyLoad" type="password" placeholder="Paste your AssemblyAI key" autocomplete="off"></div>
+        </div>
+      </div>
+      <div class="setup-row">
+        <div class="state" id="micState"></div>
+        <div class="body">
+          <div class="title">Microphone <span class="sub">(optional)</span></div>
+          <div class="sub" id="micSub">Only needed to record here. The browser asks the first time you press Record.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="workspace hidden" id="workspace">
+  <nav class="rail" id="rail" aria-label="Scenes"></nav>
+  <main class="focus" id="focus"></main>
+</div>
+
+<footer class="bottombar hidden" id="bar">
+  <button class="btn" id="prevBtn" title="Previous scene (K)"></button>
+  <button class="btn" id="nextBtn" title="Next scene (J)"></button>
+  <div class="status" id="status"></div>
+  <button class="btn" id="checkAllBtn"></button>
+  <button class="btn hidden" id="shrinkBtn"></button>
+  <button class="btn" id="saveDraftBtn"></button>
+  <button class="btn primary" id="exportBtn" disabled></button>
+</footer>
+
+<div id="settingsLayer" hidden>
+  <div class="scrim" data-close></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="drawer-head"><h2 id="settingsTitle">Settings</h2>
+      <button class="btn ghost icon" data-close aria-label="Close settings" id="settingsClose"></button></div>
+    <div class="drawer-body">
+      <div class="set-group">
+        <h4>Speech check</h4>
+        <div class="field"><input class="input" id="key" type="password" placeholder="AssemblyAI key" autocomplete="off">
+          <button class="btn icon" id="keyShow" type="button" title="Show or hide the key" aria-label="Show or hide the key"></button></div>
+        <div class="sub" style="margin-top:8px;color:var(--text-2);font-size:12.5px">Stays in this browser only.
+          <a id="keyHelp" href="https://www.assemblyai.com/dashboard/api-keys" target="_blank" rel="noopener">Get a free key</a></div>
+      </div>
+      <div class="set-group">
+        <h4>Recording</h4>
+        <div class="set-row"><div class="lbl"><b>Microphone</b><span id="micHint">Allow the microphone once to see its name.</span></div></div>
+        <select class="input" id="micSelect" style="width:100%"><option value="">System default</option></select>
+        <div class="set-row"><div class="lbl"><b>Noise removal</b><span>RNNoise, the same model OBS uses, plus a rumble filter</span></div>
+          <label class="switch"><input type="checkbox" id="optDenoise"><span class="knob"></span></label></div>
+        <div class="set-row"><div class="lbl"><b>Limiter</b><span>Catches peaks just below clipping (−1 dB)</span></div>
+          <label class="switch"><input type="checkbox" id="optLimiter"><span class="knob"></span></label></div>
+        <div class="set-row"><div class="lbl"><b>Count-in</b><span>3, 2, 1 before a take starts</span></div>
+          <label class="switch"><input type="checkbox" id="optCountIn"><span class="knob"></span></label></div>
+      </div>
+      <div class="set-group">
+        <h4>Attached files</h4>
+        <div class="set-row"><div class="lbl"><b>Audio only</b><span>Strip the dead video track from .mp4 recordings: about 10× smaller uploads and zips</span></div>
+          <label class="switch"><input type="checkbox" id="stripVideo"><span class="knob"></span></label></div>
+      </div>
+      <div class="set-group">
+        <h4>Reading</h4>
+        <div class="set-row"><div class="lbl"><b>Text size</b><span id="readSizeLabel"></span></div></div>
+        <input type="range" id="readSize" min="18" max="44" step="1">
+      </div>
+      <div class="set-group">
+        <h4>Appearance</h4>
+        <div class="seg" id="themeSeg" role="radiogroup" aria-label="Theme">
+          <button data-theme-pick="auto" role="radio">Auto</button>
+          <button data-theme-pick="light" role="radio">Light</button>
+          <button data-theme-pick="dark" role="radio">Dark</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="keysLayer" hidden>
+  <div class="modal">
+    <div class="scrim" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="keysTitle">
+      <h2 id="keysTitle">Keyboard shortcuts</h2>
+      <div class="keys" id="keysGrid"></div>
+      <p style="margin:18px 0 0;color:var(--text-3);font-size:12.5px">Shortcuts pause while you are typing in the text.</p>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="pickAny" accept=".json,.zip,application/json,application/zip" hidden>
+<input type="file" id="pickAudio" accept="audio/*,video/*" multiple hidden>
+<script>
+// Stands alone so it still works when the CDN tag below never loads.
+var fatalShown = false;
+function fatalBanner(message) {
+  if (fatalShown) return;
+  fatalShown = true;
+  var box = document.createElement('div');
+  box.className = 'banner';
+  var text = document.createElement('div');
+  text.className = 'msg';
+  text.textContent = message;
+  box.append(text);
+  document.getElementById('banners').append(box);
+}
+var ZIP_DEAD = 'Could not load the zip library. Check your connection and reload the page.';
+var KEY_URL = 'https://www.assemblyai.com/dashboard/api-keys';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.15.0/dist/zip.min.js"
+        onerror="fatalBanner(ZIP_DEAD)"></script>
+<!-- ffmpeg.wasm is OPTIONAL: it strips the dead video track out of a recording,
+     cleans up takes recorded here and renders edited clips. If it fails to
+     load, attaching still works with the original files, so no fatal banner. -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script>
+'use strict';
+// Without zip.js nothing here can save or resume, so stop before wiring anything
+// up: a half-live page that silently drops a Save Draft is worse than a banner.
+if (typeof zip === 'undefined') { fatalBanner(ZIP_DEAD); throw new Error(ZIP_DEAD); }
+zip.configure({useWebWorkers: false});
+
+// Media extensions the desktop import accepts; keep the two lists in step.
+const MEDIA_EXT = ['.mp3','.wav','.ogg','.m4a','.aac','.flac','.opus','.wma','.aiff','.aif',
+                   '.mp4','.webm','.mkv','.mov','.avi'];
+
+const $ = id => document.getElementById(id);
+let job = null;       // the loaded dubbing-job/2
+let state = [];       // state[itemIdx][n] = scene state, same order as job.items[i].scenes
+let current = null;   // the scene on screen
+
+// ------------------------------------------------------------ small helpers ---
+// DOM builder: strings become text nodes, never markup.
+function h(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (value == null || value === false) continue;
+    if (key === 'class') node.className = value;
+    else if (key === 'text') node.textContent = value;
+    else if (key.startsWith('on')) node[key] = value;
+    else if (key === 'style') node.style.cssText = value;
+    else node.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children.flat()) {
+    if (child == null || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+// Icon paths (24x24, stroked) — drawn, not font glyphs, so they look the same
+// everywhere and inherit the text colour.
+const ICONS = {
+  mic: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3',
+  play: 'M7 4v16l13-8z', pause: 'M7 4h3v16H7zM14 4h3v16h-3z',
+  scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12',
+  trash: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6',
+  undo: 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
+  redo: 'M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13',
+  zoomIn: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3M11 8v6M8 11h6',
+  zoomOut: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3M8 11h6',
+  plus: 'M12 5v14M5 12h14', upload: 'M12 16V4M7 9l5-5 5 5M4 17v3h16v-3',
+  check: 'M20 6 9 17l-5-5', x: 'M18 6 6 18M6 6l12 12',
+  left: 'M15 18l-6-6 6-6', right: 'M9 18l6-6-6-6', up: 'M18 15l-6-6-6 6', down: 'M6 9l6 6 6-6',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+  sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
+  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
+  auto: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v18',
+  keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
+  more: 'M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
+  folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  refresh: 'M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5',
+  warn: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01',
+  save: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8',
+  send: 'M22 2 11 13M22 2l-7 20-4-9-9-4z',
+  eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  menu: 'M3 6h18M3 12h18M3 18h18',
+  listen: 'M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z',
+  shrink: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
+};
+function icon(name, cls) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'i' + (cls ? ' ' + cls : ''));
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+// Status glyphs differ in SHAPE as well as colour: a red/green judgement
+// must not depend on telling red from green.
+function statusIcon(status) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 20 20');
+  svg.setAttribute('class', 'st ' + status);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = {
+    missing: '<circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/>',
+    unchecked: '<circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor"/>',
+    working: '<path d="M10 3a7 7 0 1 1-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+    ok: '<circle cx="10" cy="10" r="8" fill="currentColor"/><path d="m6.3 10.2 2.5 2.5 4.9-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    mismatch: '<path d="M10 2.5 18 17H2z" fill="currentColor"/><path d="M10 7.5v4.2M10 14.2v.1" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+    close: '<circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m6.8 10.2 2.2 2.2 4.2-4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    override: '<path d="M10 2 18 10 10 18 2 10z" fill="currentColor"/><path d="m6.8 10.2 2.2 2.2 4.2-4.4" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  }[status] || '';
+  return svg;
+}
+const STATUS_TEXT = {missing: 'No audio', unchecked: 'Not checked', working: 'Checking…',
+                     ok: 'Matches', close: 'Close match', mismatch: "Doesn't match",
+                     override: 'Kept as written'};
+
+function clock(seconds) {
+  if (seconds == null) return '?:??';
+  return Math.floor(Math.round(seconds) / 60) + ':' + String(Math.round(seconds) % 60).padStart(2, '0');
+}
+// Tenths while editing: a cut placed by ear needs better than whole seconds.
+function preciseClock(seconds) {
+  const s = Math.max(0, seconds || 0);
+  return Math.floor(s / 60) + ':' + (s % 60).toFixed(1).padStart(4, '0');
+}
+const megabytes = bytes => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+function ordinal(n) {
+  const suffix = ['th', 'st', 'nd', 'rd'], mod = n % 100;
+  return n + (suffix[(mod - 20) % 10] || suffix[mod] || suffix[0]);
+}
+// A project's folder name — "3_My_Video_Title". The job's
+// `label` is the published name, which drops the ordering number; on screen
+// the number is what ties a scene to the folder and to the job file.
+const itemName = item => item.project.split('/').pop();
+const itemKind = item => item.project.includes('/')
+  ? 'short ' + ((itemName(item).match(/^\d+/) || [''])[0])
+  : 'main';
+// What one recording is called: "3rd scene", or the sign-off that plays after
+// the last one.
+function cardLabel(scene) {
+  return scene.ending ? 'Ending' : ordinal(scene.index + 1) + ' scene';
+}
+const typing = () => {
+  const el = document.activeElement;
+  return el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' ||
+                (el.tagName === 'INPUT' && !['checkbox', 'range', 'radio'].includes(el.type)));
+};
+
+// ---------------------------------------------------------------- errors ---
+// The narrator is not a developer: nothing fails silently into the console.
+function banner(message) {
+  const text = h('div', {class: 'msg'});
+  // A URL in the message becomes clickable — telling a narrator to retype an
+  // address by hand is how they end up not going there at all. Everything
+  // around it stays textContent, so nothing in a message can inject markup.
+  String(message).split(/(https?:\/\/[^\s)]+)/).forEach((part, index) => {
+    if (index % 2 === 0) return text.append(part);
+    text.append(h('a', {href: part, target: '_blank', rel: 'noopener', text: part}));
+  });
+  const box = h('div', {class: 'banner'}, icon('warn'), text,
+    h('button', {title: 'Dismiss', 'aria-label': 'Dismiss', onclick: () => box.remove()}, icon('x', 'sm')));
+  $('banners').append(box);
+  console.error(message);
+}
+const say = error => banner(error && error.message ? error.message : String(error));
+
+// A save through the file picker writes in place: no Downloads-bar entry, no
+// visible sign it worked. The toast IS that sign, for both save paths.
+// `action` ({label, run}) adds the obvious next step as a button.
+function toast(message, action) {
+  const box = h('div', {class: 'toast'}, icon('check'), h('div', {text: message}),
+    action ? h('button', {class: 'btn sm', onclick: () => { box.remove(); action.run(); }, text: action.label}) : null);
+  $('toasts').append(box);
+  setTimeout(() => box.remove(), action ? 15000 : 7000);
+}
+
+// ------------------------------------------------------------ preferences ---
+// Everything here is a per-browser convenience; storage can be blocked
+// (private windows, strict settings), so every read has a default.
+const prefs = {
+  get(key, fallback) {
+    try { const value = localStorage.getItem(key); return value == null ? fallback : value; }
+    catch (error) { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); }
+    catch (error) { banner('Could not save a setting in this browser: ' + error.message); }
+  },
+  flag(key, fallback) { return this.get(key, fallback ? '1' : '0') === '1'; },
+};
+
+// ------------------------------------------------------------------ theme ---
+// Follows the system until the narrator picks one; the pick is remembered.
+const THEMES = ['auto', 'light', 'dark'];
+function applyTheme(theme) {
+  if (theme === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  prefs.set('theme', theme);
+  const btn = $('themeBtn');
+  btn.replaceChildren(icon(theme === 'auto' ? 'auto' : theme === 'light' ? 'sun' : 'moon'));
+  btn.title = 'Theme: ' + theme + ' (click to change)';
+  btn.setAttribute('aria-label', btn.title);
+  document.querySelectorAll('[data-theme-pick]').forEach(b => {
+    b.classList.toggle('on', b.dataset.themePick === theme);
+    b.setAttribute('aria-checked', b.dataset.themePick === theme);
+  });
+  redrawTimeline();
+}
+const currentTheme = () => {
+  const saved = prefs.get('theme', 'auto');
+  return THEMES.includes(saved) ? saved : 'auto';
+};
+// Canvas colours come from the same tokens as the CSS, read at draw time so a
+// theme switch repaints correctly.
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ------------------------------------------------------------ core logic ---
+// The check is one word-level LCS diff of the line against what was heard.
+// Everything hangs off analyzeScene(): the similarity (matched script words
+// over all script words), the per-third floors (a cold third = probably a
+// missing part), the never-heard alert and the rendered diff all read the
+// SAME ops, so they can never disagree. Tolerant on purpose.
+const STT_OK = 0.65, CHUNK_FLOOR = 0.40, SIMILAR_ENOUGH = 0.90, MISSING_CHUNK = 0.10,
+      EXTRA_HEARD = 0.10;
+
+// All words, punctuation dropped, case kept for display (compares are
+// case-insensitive) — one-letter words included, the diff shows everything.
+function words(text) {
+  // ’/ʼ: curly apostrophes — LLM scripts and iOS/macOS smart
+  // punctuation both produce them; dropping them split "Don’t" into "Don t".
+  // NFKC, not NFKD: decomposing would turn an accent into its own combining
+  // mark, which is not \p{L} and would shred "ação" into "ac a o" — both in
+  // the diff shown and in the text a rewrite stores.
+  return text.normalize('NFKC').replace(/[^\p{L}\p{N}\s'’ʼ]/gu, ' ')
+    .split(/\s+/).filter(Boolean);
+}
+
+// "They're" and "they are" must count as the same words: the narrator reads
+// naturally and the STT expands or contracts at will. Expansion runs on
+// BOTH sides, so even a possessive 's expanding to "is" still matches its
+// own expansion on the other side. (gray-box/graybox is the diff's job.)
+const CONTRACTIONS = {"won't": 'will not', "can't": 'can not', cannot: 'can not',
+  "shan't": 'shall not', "let's": 'let us', "ain't": 'is not',
+  gonna: 'going to', wanna: 'want to', gotta: 'got to'};
+// Accents are dropped from the comparison form only: the STT adds or drops
+// them at will ("esta" for "está", "e" for "é"). Display keeps the script's
+// spelling. (Decomposing HERE is safe: the word is already split out.)
+function expandWord(word) {
+  const lower = word.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[’ʼ]/g, "'");
+  if (CONTRACTIONS[lower]) return CONTRACTIONS[lower].split(' ');
+  let m;
+  if ((m = lower.match(/^(\p{L}+)n't$/u))) return [m[1], 'not'];
+  if ((m = lower.match(/^([\p{L}\p{N}]+)'(re|ll|ve|d|m|s)$/u)))
+    return [m[1], {re: 'are', ll: 'will', ve: 'have', d: 'would', m: 'am', s: 'is'}[m[2]]];
+  return [lower];
+}
+
+// Token stream where a contraction becomes its expanded words but keeps ONE
+// display form: [{display: "They're", canon: 'they'}, {display: '', canon: 'are'}]
+function tokenStream(text) {
+  const out = [];
+  for (const word of words(text))
+    expandWord(word).forEach((canon, k) =>
+      out.push({display: k === 0 ? word : '', canon}));
+  return out;
+}
+
+// ops: {kind: 'eq'|'del'|'ins', display, nScript, paired} — del carries the
+// script's wording, ins what was heard instead; a del in a change block with
+// no ins at all is UNPAIRED: text that was never heard, not reworded.
+// A change block also re-welds compounds: script "graybox" heard as
+// "gray box" (or the reverse) becomes an eq instead of a del + two ins.
+// Every op that shows a heard word also carries `at`, the index of that word
+// in tokenStream(transcript): the page uses it to tie the diff to the audio.
+// It is page-only; the desktop side has no use for it.
+function diffOps(text, transcript) {
+  const a = tokenStream(text), b = tokenStream(transcript);
+  b.forEach((tok, k) => { tok.at = k; });
+  const rows = a.length, cols = b.length;
+  const lcs = Array.from({length: rows + 1}, () => new Uint16Array(cols + 1));
+  for (let i = rows - 1; i >= 0; i--)
+    for (let j = cols - 1; j >= 0; j--)
+      lcs[i][j] = a[i].canon === b[j].canon ? lcs[i + 1][j + 1] + 1
+                                            : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const raw = [];
+  let i = 0, j = 0;
+  while (i < rows && j < cols) {
+    if (a[i].canon === b[j].canon) {
+      raw.push({kind: 'eq', tok: a[i++], heard: b[j].display, at: b[j++].at});
+    }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) raw.push({kind: 'del', tok: a[i++]});
+    else raw.push({kind: 'ins', tok: b[j++]});
+  }
+  while (i < rows) raw.push({kind: 'del', tok: a[i++]});
+  while (j < cols) raw.push({kind: 'ins', tok: b[j++]});
+
+  const ops = [];
+  let block = null;
+  const flush = () => {
+    if (!block) return;
+    const {dels, inss} = block;
+    while (dels.length && inss.length) {
+      if (inss.length > 1 && dels[0].canon === inss[0].canon + inss[1].canon) {
+        const heard = [inss[0].display, inss[1].display].filter(Boolean).join(' ');
+        ops.push({kind: 'eq', display: dels[0].display, heard, nScript: 1, at: inss[0].at});
+        dels.shift(); inss.shift(); inss.shift();
+      } else if (dels.length > 1 && dels[0].canon + dels[1].canon === inss[0].canon) {
+        const display = [dels[0].display, dels[1].display].filter(Boolean).join(' ');
+        ops.push({kind: 'eq', display, heard: inss[0].display, nScript: 2, at: inss[0].at});
+        dels.shift(); dels.shift(); inss.shift();
+      } else break;
+    }
+    const paired = inss.length > 0;
+    for (const tok of dels)
+      ops.push({kind: 'del', display: tok.display, nScript: 1, paired});
+    for (const tok of inss)
+      ops.push({kind: 'ins', display: tok.display, nScript: 0, at: tok.at});
+    block = null;
+  };
+  for (const {kind, tok, heard, at} of raw) {
+    if (kind === 'eq') {
+      flush();
+      ops.push({kind: 'eq', display: tok.display, heard, nScript: 1, at});
+    } else {
+      block = block || {dels: [], inss: []};
+      block[kind === 'del' ? 'dels' : 'inss'].push(tok);
+    }
+  }
+  flush();
+  // A contraction's expanded tail carries no display of its own — its head's
+  // surface covers it. When the HEAD was deleted (reworded), that surface is
+  // gone and the matched tail would vanish from both the diff and a rewrite
+  // ("They're happy" heard as "We are happy" must not become "We happy").
+  // Surface the heard word as a phantom: shown and emitted, but owning no
+  // script-side span.
+  let cover = 'eq';
+  for (const op of ops) {
+    if (op.kind === 'ins') continue;
+    if (op.display) cover = op.kind;
+    else if (op.kind === 'eq' && op.heard && cover === 'del') {
+      op.display = op.heard;
+      op.phantom = true;
+    }
+  }
+  return ops;
+}
+
+// Heard words that replace nothing: per change block (a run between
+// matches), the insertions beyond its deletions. A reworded word is a
+// deletion paired with an insertion and costs nothing extra; a retake left
+// in, or a take from another scene appended, is all extra.
+function extraWords(ops) {
+  let extra = 0, dels = 0, inss = 0;
+  for (const op of [...ops, {kind: 'eq'}]) {
+    if (op.kind === 'eq') { extra += Math.max(0, inss - dels); dels = inss = 0; }
+    else if (op.kind === 'del') dels++;
+    else inss++;
+  }
+  return extra;
+}
+
+// The ratio is matched words over the line's words PLUS the extra heard
+// ones, so audio beyond the line lowers it too.
+function analyzeScene(text, transcript) {
+  const ops = diffOps(text, transcript);
+  const scriptOps = ops.filter(op => op.kind !== 'ins');
+  const total = scriptOps.reduce((sum, op) => sum + op.nScript, 0);
+  const matched = ops.filter(op => op.kind === 'eq')
+    .reduce((sum, op) => sum + op.nScript, 0);
+  const extra = extraWords(ops);
+  const ratio = total + extra ? matched / (total + extra) : 1;
+  const third = Math.ceil(total / 3) || 1;
+  const chunks = [{eq: 0, all: 0}, {eq: 0, all: 0}, {eq: 0, all: 0}];
+  let pos = 0;
+  for (const op of scriptOps) {
+    const bucket = chunks[Math.min(2, Math.floor(pos / third))];
+    bucket.all += op.nScript;
+    if (op.kind === 'eq') bucket.eq += op.nScript;
+    pos += op.nScript;
+  }
+  const chunksOk = chunks.every(c => !c.all || c.eq / c.all >= CHUNK_FLOOR);
+  const unheard = ops.filter(op => op.kind === 'del' && !op.paired)
+    .reduce((sum, op) => sum + op.nScript, 0);
+  return {ops, ratio, ok: ratio >= STT_OK && chunksOk,
+          missingChunk: total > 0 && unheard / total >= MISSING_CHUNK,
+          extra, extraHeard: total > 0 && extra / total >= EXTRA_HEARD};
+}
+
+// Rebuild the line as the heard wording while keeping the punctuation and
+// paragraph breaks of everything that did not change. Works on character
+// spans of the script-side words, so eq slices carry their own commas,
+// periods and \n\n along.
+function applyHeardText(text, ops) {
+  const normalized = text.normalize('NFKC');   // same form words() uses
+  const spans = [];
+  const wordRe = /[\p{L}\p{N}'’ʼ]+/gu;
+  let match;
+  while ((match = wordRe.exec(normalized)))
+    spans.push([match.index, match.index + match[0].length]);
+  let out = '', cursor = 0, at = 0;
+  for (const op of ops) {
+    if (op.kind === 'ins' || op.phantom) {
+      if (op.display) out += (out && !out.endsWith(' ') ? ' ' : '') + op.display;
+      continue;                         // owns no script-side span
+    }
+    const width = op.display ? op.display.split(' ').filter(Boolean).length : 0;
+    if (!width) continue;               // covered tail of a contraction
+    const [start] = spans[at], [, end] = spans[at + width - 1];
+    if (op.kind === 'eq') out += normalized.slice(cursor, end);
+    else out += normalized.slice(cursor, start);   // drop the word, keep the gap
+    cursor = end;
+    at += width;
+  }
+  out += normalized.slice(cursor);
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:!?])/g, '$1').trim();
+}
+
+async function sha256hex(file){
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// AssemblyAI answers CORS for any origin on /v2/upload and /v2/transcript,
+// `authorization` header included, so it is called straight from the browser.
+// Every response is checked: a mistyped key answers with {error} and no
+// usable fields, and without these throws the poll would spin on
+// /v2/transcript/undefined forever with the scene stuck on "checking...".
+async function sttJson(response) {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error)
+    throw new Error(body.error || ('speech service answered ' + response.status));
+  return body;
+}
+async function sttTranscript(file, key, language){       // AssemblyAI
+  const up = await sttJson(await fetch('https://api.assemblyai.com/v2/upload',
+    {method:'POST', headers:{authorization:key}, body:file}));
+  if (!up.upload_url) throw new Error('speech upload returned no URL');
+  const created = await sttJson(await fetch('https://api.assemblyai.com/v2/transcript',
+    {method:'POST', headers:{authorization:key,'content-type':'application/json'},
+     body:JSON.stringify({audio_url:up.upload_url, language_code:language})}));
+  if (!created.id) throw new Error('speech service returned no transcript id');
+  for(;;){
+    await new Promise(r=>setTimeout(r, 3000));
+    const poll = await sttJson(await fetch(
+      'https://api.assemblyai.com/v2/transcript/'+created.id,
+      {headers:{authorization:key}}));
+    if (poll.status === 'completed') {
+      // Each word with its time in the file (ms), so the diff can follow and
+      // seek the audio. The text is rebuilt FROM those words: tokenStream of
+      // the joined text is then exactly the words' tokens in order, which is
+      // what lets a diff op's `at` index into their timings.
+      const words = (poll.words || []).map(w => [w.text, w.start, w.end]);
+      return {text: words.map(w => w[0]).join(' '), words};
+    }
+    if (poll.status === 'error' || !poll.status)
+      throw new Error(poll.error || 'speech check failed');
+  }
+}
+
+// --------------------------------------------- browser storage (IDB) ---
+// One database, two stores: 'transcripts' (STT results keyed by part sha256,
+// so a re-check never re-uploads) and 'session' (the auto-resume state —
+// meta under 'meta', audio blobs under 'part:<sha256>'). Everything carries
+// a timestamp and is swept after MAX_AGE_DAYS, so the narrator's browser
+// never accumulates stale data.
+const MAX_AGE_DAYS = 30, MAX_AGE_MS = MAX_AGE_DAYS * 24 * 3600 * 1000;
+let dbPromise = null, cacheWarned = false, sessionWarned = false;
+function openCache() {
+  return dbPromise || (dbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open('stt-cache', 2);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('transcripts'))
+        db.createObjectStore('transcripts');
+      if (!db.objectStoreNames.contains('session'))
+        db.createObjectStore('session');
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  }));
+}
+function cacheWarn(error) {
+  if (cacheWarned) return;
+  cacheWarned = true;
+  banner('Transcript cache unavailable, checks will re-upload every time: ' + error);
+}
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function idbGet(storeName, key) {
+  const store = (await openCache()).transaction(storeName).objectStore(storeName);
+  return idbRequest(store.get(key));
+}
+async function idbPut(storeName, key, value) {
+  const store = (await openCache())
+    .transaction(storeName, 'readwrite').objectStore(storeName);
+  return idbRequest(store.put(value, key));
+}
+// A cached part is {text, words}. Entries from before word timings were
+// kept (no `w`) count as missing: the part is transcribed again once, rather
+// than the page carrying a second, timing-less kind of transcript.
+async function cacheGet(hash) {
+  try {
+    const entry = await idbGet('transcripts', hash);
+    return entry && Array.isArray(entry.w) ? {text: entry.t, words: entry.w} : undefined;
+  } catch (error) { cacheWarn(error); return undefined; }
+}
+async function cachePut(hash, heard) {
+  // Awaited so a quota error reaches cacheWarn instead of a bare event.
+  try { await idbPut('transcripts', hash, {t: heard.text, w: heard.words, ts: Date.now()}); }
+  catch (error) { cacheWarn(error); }
+}
+
+// ------------------------------------------------- auto-resume session ---
+// The last unfinished project lives in the browser: texts, verdicts AND the
+// attached audio, so closing the tab and coming back continues exactly where
+// the narrator stopped, no draft file needed. One project at a time; the
+// final export (or "New project") clears it. The draft zip remains the
+// durable, cross-machine backup.
+function sessionWarn(error) {
+  if (sessionWarned) return;
+  sessionWarned = true;
+  banner('Auto-resume storage unavailable — use Save Draft to keep your ' +
+         'work: ' + (error && error.message ? error.message : error));
+}
+async function sessionPutBlob(sha, blob) {
+  try { await idbPut('session', 'part:' + sha, {blob, ts: Date.now()}); }
+  catch (error) { sessionWarn(error); }
+}
+// Version 2: a scene is a list of CLIPS over stored sources, so edits survive
+// a reload. Only the sources blobs are stored (under 'part:<sha>'); rendered
+// clips are re-derived on demand.
+const SESSION_VERSION = 2;
+function sessionMeta() {
+  const used = new Set(state.flat().flatMap(scene => scene.clips.map(c => c.src)));
+  return {
+    v: SESSION_VERSION,
+    ts: Date.now(),
+    job,
+    scenes: state.map(scenes => scenes.map(scene => ({
+      index: scene.index, text: scene.text, status: scene.status,
+      ratio: scene.ratio, transcript: scene.transcript,
+      checked: !!scene.checked,
+      clips: scene.clips.map(c => ({src: c.src, start: c.start, end: c.end,
+                                    whole: c.whole, renderedSha: c.renderedSha || null})),
+    }))),
+    sources: [...used].map(sha => {
+      const src = sources.get(sha);
+      return {sha256: sha, name: src.name, recorded: !!src.recorded, duration: src.duration};
+    }),
+  };
+}
+async function sessionSave() {
+  if (!job) return;
+  try { await idbPut('session', 'meta', sessionMeta()); }
+  catch (error) { sessionWarn(error); }
+}
+async function sessionClear() {
+  try {
+    const store = (await openCache())
+      .transaction('session', 'readwrite').objectStore('session');
+    await idbRequest(store.clear());
+  } catch (error) { sessionWarn(error); }
+}
+// Sweep both stores and the localStorage autosaves on every page open, so
+// anything older than MAX_AGE_DAYS disappears by itself.
+async function sweepStorage() {
+  const cutoff = Date.now() - MAX_AGE_MS;
+  try {
+    for (const storeName of ['transcripts', 'session']) {
+      const store = (await openCache())
+        .transaction(storeName, 'readwrite').objectStore(storeName);
+      await new Promise((resolve, reject) => {
+        const walk = store.openCursor();
+        walk.onerror = () => reject(walk.error);
+        walk.onsuccess = () => {
+          const cursor = walk.result;
+          if (!cursor) return resolve();
+          const value = cursor.value;
+          const ts = value && typeof value === 'object' ? value.ts : undefined;
+          if (!ts || ts < cutoff) cursor.delete();
+          cursor.continue();
+        };
+      });
+    }
+  } catch (error) { /* sweeping is best-effort; loading still works */ }
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('draft:')) continue;
+      let ts;
+      try { ts = JSON.parse(localStorage.getItem(key)).savedAt; } catch (e) {}
+      if (!ts || ts < cutoff) localStorage.removeItem(key);
+    }
+  } catch (error) { /* storage may be blocked entirely; fine */ }
+}
+
+// --------------------------------------------------------- text autosave ---
+// Text only: localStorage never carries the audio, and a verdict without the
+// audio it judged is worthless — the draft zip is what restores both.
+const autosaveKey = () => 'draft:' + job.job_id;
+let autosaveTimer = null;
+function autosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    try {
+      const saved = {savedAt: Date.now(), scenes: {}};
+      state.forEach((scenes, i) => {
+        saved.scenes[i] = {};
+        scenes.forEach(scene => {
+          saved.scenes[i][scene.index] = {text: scene.text};
+        });
+      });
+      localStorage.setItem(autosaveKey(), JSON.stringify(saved));
+    } catch (error) { banner('Could not autosave your edits: ' + error.message); }
+    sessionSave();   // the full auto-resume state rides the same debounce
+  }, 500);
+}
+function readAutosave() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(autosaveKey()) || '{}');
+    return saved.scenes || saved;   // pre-savedAt entries were the bare map
+  } catch (error) { banner('Could not read your saved edits: ' + error.message); return {}; }
+}
+
+// --------------------------------------------------------- clip model (pure) ---
+// A scene's audio is an ordered list of clips laid end to end; a clip is a
+// window [start, end) in seconds onto one immutable source (`src` = its
+// sha256). Nothing here touches audio: every edit is instant and undoable,
+// and a clip only becomes a real file when something needs one (materialize).
+// `whole` marks a clip that IS its source — it ships as the original bytes.
+const MIN_CLIP = 0.02;   // fragments shorter than this, left by an edit, are dropped
+let clipSeq = 0;
+const newClipId = () => 'c' + (++clipSeq);
+const clipLen = c => c.end - c.start;
+const sceneLength = clips => clips.reduce((sum, c) => sum + clipLen(c), 0);
+function clipOffsets(clips) {
+  const out = [];
+  let at = 0;
+  for (const c of clips) { out.push(at); at += clipLen(c); }
+  return out;
+}
+// The clip playing at scene time t, and how far into it.
+function locate(clips, t) {
+  let at = 0;
+  for (let i = 0; i < clips.length; i++) {
+    const len = clipLen(clips[i]);
+    if (t < at + len || i === clips.length - 1)
+      return {i, within: Math.min(Math.max(t - at, 0), len)};
+    at += len;
+  }
+  return null;
+}
+const trimmed = (c, patch) => ({...c, ...patch, id: newClipId(), whole: false, renderedSha: null});
+// Split the clip under t in two. No-op too close to an existing edge.
+function splitAt(clips, t) {
+  const hit = locate(clips, t);
+  if (!hit) return clips;
+  const c = clips[hit.i];
+  if (hit.within < MIN_CLIP || clipLen(c) - hit.within < MIN_CLIP) return clips;
+  const cut = c.start + hit.within;
+  return [...clips.slice(0, hit.i), trimmed(c, {end: cut}), trimmed(c, {start: cut}),
+          ...clips.slice(hit.i + 1)];
+}
+// Remove scene time [a, b), across as many clips as the range spans.
+function cutRange(clips, a, b) {
+  if (b - a < MIN_CLIP / 2) return clips;
+  const out = [];
+  let at = 0;
+  for (const c of clips) {
+    const s = at, e = at + clipLen(c);
+    at = e;
+    if (e <= a || s >= b) { out.push(c); continue; }
+    const keepLeft = a - s, keepRight = e - b;
+    if (keepLeft >= MIN_CLIP) out.push(trimmed(c, {end: c.start + keepLeft}));
+    if (keepRight >= MIN_CLIP) out.push(trimmed(c, {start: c.end - keepRight}));
+  }
+  return out;
+}
+// `to` is the index the clip ends up at, counted after it was taken out.
+function moveClip(clips, from, to) {
+  if (from === to || from < 0 || from >= clips.length) return clips;
+  const next = clips.slice();
+  const [c] = next.splice(from, 1);
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, c);
+  return next;
+}
+const removeClip = (clips, i) => clips.filter((_, k) => k !== i);
+// ------------------------------------------------------ end of clip model ---
+
+// ---------------------------------------------------------------- sources ---
+// Every audio file this page holds, by sha256: attached files, recorded
+// takes, parts pulled out of a draft. Immutable — clips only point at them.
+const sources = new Map();   // sha256 -> {sha256, blob, name, duration, recorded, peaks}
+const extOf = name => ('.' + name.split('.').pop()).toLowerCase();
+const stem = name => name.replace(/\.[^.]*$/, '');
+
+function mediaDuration(blob) {
+  return new Promise(resolve => {
+    const audio = new Audio(), url = URL.createObjectURL(blob);
+    const done = value => { URL.revokeObjectURL(url); resolve(value); };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => done(isFinite(audio.duration) ? audio.duration : null);
+    audio.onerror = () => done(null);
+    // A container the browser will not probe must not stall attaching a file.
+    setTimeout(() => done(null), 5000);
+    audio.src = url;
+  });
+}
+
+async function registerSource(blob, name, {recorded = false, sha = null, duration = null} = {}) {
+  const sha256 = sha || await sha256hex(blob);
+  let src = sources.get(sha256);
+  if (!src) {
+    src = {sha256, blob, name, recorded, duration: duration ?? await mediaDuration(blob), peaks: null};
+    sources.set(sha256, src);
+    if (src.duration == null) {
+      // The metadata probe gave up; decoding always knows the length.
+      try { await decodeSource(src); } catch (error) { /* reported below */ }
+    }
+    if (src.duration == null) {
+      sources.delete(sha256);
+      throw new Error('could not read how long "' + name + '" is — is it a real audio file?');
+    }
+    await sessionPutBlob(sha256, blob);   // auto-resume keeps the audio too
+  }
+  return src;
+}
+const wholeClip = src => ({id: newClipId(), src: src.sha256, start: 0, end: src.duration,
+                           whole: true, renderedSha: null});
+
+// ------------------------------------------------------------------- ffmpeg ---
+// The narrator records .mp4 whose picture is a dead still frame: the video
+// track is ~90% of the bytes and nothing downstream ever looks at it (the
+// desktop import drops it too). Stripping it here
+// makes the speech upload, the zip and the browser's own storage roughly ten
+// times smaller. Stream copy first (no re-encode, no quality loss at all);
+// only a container that cannot hold the source codec falls back to AAC 160k.
+const VIDEO_EXT = ['.mp4','.mov','.mkv','.webm','.avi','.m4v','.mpg','.mpeg','.wmv'];
+const FFMPEG_LIB = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+// The ESM core, deliberately, even though the library itself is the UMD
+// build: passing `classWorkerURL` makes it spawn a MODULE worker, where
+// `importScripts` does not exist. It then falls back to `import(coreURL)`,
+// which only yields a core if that file is an ES module — the UMD core
+// lands there as undefined and surfaces as "failed to import
+// ffmpeg-core.js".
+const FFMPEG_CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+
+// Uncompressed size of the three files below, for the download percentage.
+// The CDN's own Content-Length is the BROTLI size (9 MB) while the stream
+// hands over the decompressed bytes (32 MB), so the header would report
+// ~350%; these are the real totals for the pinned versions.
+const FFMPEG_BYTES = 32129114 + 114673 + 2648;
+
+// RNNoise's standard model — the one OBS's noise-suppression filter runs —
+// in the format ffmpeg's arnndn reads. Pinned to a commit: a model that
+// changed under us would change how every take sounds.
+const RNNOISE_MODEL = 'https://cdn.jsdelivr.net/gh/richardpl/arnndn-models@0fda24c46d78f0207d820bb970fbe85c1971b39c/std.rnnn';
+
+// Everything ffmpeg.wasm runs has to come from OUR origin, so each piece is
+// downloaded and handed over as a blob URL. That includes the library's own
+// worker chunk (`classWorkerURL`): left out, it tries to spawn the worker
+// from a path next to this page, which does not exist on the site.
+async function toBlobURL(url, type, onBytes) {
+  const response = await fetch(url);
+  if (!response.ok)
+    throw new Error('could not download ' + url.split('/').pop());
+  if (!onBytes || !response.body)
+    return URL.createObjectURL(new Blob([await response.arrayBuffer()], {type}));
+  const reader = response.body.getReader();
+  const chunks = [];
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    onBytes(value.length);
+  }
+  return URL.createObjectURL(new Blob(chunks, {type}));
+}
+
+let ffmpegPromise = null;
+function loadFfmpeg(onProgress) {
+  if (ffmpegPromise) return ffmpegPromise;
+  ffmpegPromise = (async () => {
+    if (typeof FFmpegWASM === 'undefined')
+      throw new Error('ffmpeg did not load from the CDN');
+    let received = 0;
+    const count = onProgress
+      ? bytes => onProgress(received += bytes, FFMPEG_BYTES)
+      : null;
+    const instance = new FFmpegWASM.FFmpeg();
+    await instance.load({
+      coreURL: await toBlobURL(FFMPEG_CORE + '/ffmpeg-core.js', 'text/javascript', count),
+      wasmURL: await toBlobURL(FFMPEG_CORE + '/ffmpeg-core.wasm', 'application/wasm', count),
+      classWorkerURL: await toBlobURL(FFMPEG_LIB + '/814.ffmpeg.js', 'text/javascript', count),
+    });
+    return instance;
+  })().catch(error => { ffmpegPromise = null; throw error; });
+  return ffmpegPromise;
+}
+
+// One ffmpeg job at a time: the engine is single-threaded anyway, and it
+// keeps at most one file's worth of bytes in its memory filesystem.
+let ffQueue = Promise.resolve();
+let ffSeq = 0;
+function ffTask(work) {
+  const run = ffQueue.then(work, work);
+  ffQueue = run.catch(() => {});
+  return run;
+}
+// `inputs` maps a key to a Blob; `{key}` in an argument is that input's
+// per-job file name and `{out}` the output's. Unique names per job, all
+// deleted afterwards.
+//
+// Each input's bytes are read HERE, fresh for this job: `writeFile`
+// TRANSFERS the buffer to ffmpeg's worker, which detaches it on our side.
+// A buffer a caller kept and passed twice (the cached noise model, a retry
+// with the same file) failed the second time with "ArrayBuffer ... is
+// already detached".
+async function ffRun(inputs, args, outExt) {
+  return ffTask(async () => {
+    const ffmpeg = await loadFfmpeg();
+    const tag = ++ffSeq;
+    const names = new Map();
+    for (const [key, blob] of Object.entries(inputs)) {
+      names.set(key, key + '_' + tag);
+      await ffmpeg.writeFile(names.get(key), new Uint8Array(await blob.arrayBuffer()));
+    }
+    const out = 'out_' + tag + outExt;
+    const fill = arg => arg.replace(/\{(\w+)\}/g, (_, key) => key === 'out' ? out : names.get(key));
+    try {
+      const code = await ffmpeg.exec(args.map(fill));
+      const data = await ffmpeg.readFile(out).catch(() => null);
+      if (code !== 0 || !data || !data.length) throw new Error('ffmpeg could not process the audio');
+      return data;
+    } finally {
+      for (const name of names.values()) await ffmpeg.deleteFile(name).catch(() => {});
+      await ffmpeg.deleteFile(out).catch(() => {});
+    }
+  });
+}
+
+async function extractAudio(file) {
+  let data = null;
+  try {
+    // -vn drops the picture, -c:a copy keeps the original audio bytes.
+    data = await ffRun({in: file}, ['-i', '{in}', '-vn', '-c:a', 'copy', '{out}'], '.m4a');
+  } catch (error) {
+    // Source audio the .m4a container cannot hold (PCM in a .mov, say).
+    data = await ffRun({in: file},
+      ['-i', '{in}', '-vn', '-c:a', 'aac', '-b:a', '160k', '{out}'], '.m4a');
+  }
+  return new File([data], stem(file.name) + '.m4a', {type: 'audio/mp4'});
+}
+
+// Everything this page produces — recorded takes and edited clips — is FLAC
+// 16-bit: lossless, so repeated edits never stack generations, at 1.7x the
+// size of Opus 128k (measured on a real narration minute; well under the
+// "3x for an inaudible difference" line). `-sample_fmt s16` is load-bearing:
+// after a float filter chain ffmpeg would otherwise pick 24-bit FLAC, 2.4x
+// bigger for nothing audible.
+const FLAC_OUT = ['-sample_fmt', 's16', '-c:a', 'flac'];
+const FADE = 0.008;   // at every edited edge, in preview and render: no clicks
+
+// A clip as a real file. A whole clip IS its source (the original bytes ship
+// untouched); an edited one is rendered once and memoized by its window.
+const rendered = new Map();
+function materialize(clip) {
+  const src = sources.get(clip.src);
+  if (clip.whole)
+    return Promise.resolve({blob: src.blob, sha256: src.sha256, ext: extOf(src.name)});
+  const key = clip.src + ':' + clip.start.toFixed(4) + ':' + clip.end.toFixed(4);
+  if (!rendered.has(key)) {
+    rendered.set(key, renderClip(src, clip).catch(error => {
+      rendered.delete(key);
+      throw error;
+    }));
+  }
+  return rendered.get(key).then(result => { clip.renderedSha = result.sha256; return result; });
+}
+async function renderClip(src, clip) {
+  const length = clipLen(clip);
+  // The window is cut INSIDE the filter graph (atrim, sample-exact) and its
+  // clock reset to zero before the fades. Seeking with -ss after -i instead
+  // runs the filters on the WHOLE file's timeline and trims afterwards: the
+  // fade-out lands at clip-length seconds into the FILE and the rendered clip
+  // came out silent past that point (caught by a bit-exact native test).
+  const filters = ['atrim=start=' + clip.start.toFixed(6) + ':end=' + clip.end.toFixed(6),
+                   'asetpts=PTS-STARTPTS'];
+  if (clip.start > 0.0005) filters.push('afade=t=in:st=0:d=' + FADE);
+  if (clip.end < src.duration - 0.0005)
+    filters.push('afade=t=out:st=' + Math.max(0, length - FADE).toFixed(6) + ':d=' + FADE);
+  const data = await ffRun({src: src.blob},
+    ['-i', '{src}', '-vn', '-af', filters.join(','), ...FLAC_OUT, '{out}'], '.flac');
+  const blob = new Blob([data], {type: 'audio/flac'});
+  return {blob, sha256: await sha256hex(blob), ext: '.flac'};
+}
+
+// A recorded take, cleaned up like OBS would (RNNoise + limiter), or raw.
+let modelBlob = null;
+async function noiseModel() {
+  if (!modelBlob) {
+    const response = await fetch(RNNOISE_MODEL);
+    if (!response.ok) throw new Error('could not download the noise-removal model');
+    modelBlob = await response.blob();
+  }
+  return modelBlob;
+}
+async function processTake(samples, rate) {
+  const inputs = {take: new Blob([encodeWav(samples, rate, true)])};
+  const filters = [];
+  if (prefs.flag('rec.denoise', true)) {
+    try {
+      inputs.model = await noiseModel();
+      // Rumble below the voice first, then RNNoise at its native 48 kHz.
+      filters.push('highpass=f=80', 'arnndn=m={model}');
+    } catch (error) {
+      banner('Noise removal is unavailable right now (' + error.message + '). This take ' +
+             'was kept without it.');
+    }
+  }
+  if (prefs.flag('rec.limiter', true)) filters.push('alimiter=limit=0.891:level=false');   // −1 dBFS
+  try {
+    const data = await ffRun(inputs, ['-i', '{take}',
+      ...(filters.length ? ['-af', filters.join(',')] : []),
+      '-ar', '48000', '-ac', '1', ...FLAC_OUT, '{out}'], '.flac');
+    return new Blob([data], {type: 'audio/flac'});
+  } catch (error) {
+    // Without ffmpeg the take is still kept — raw, as plain 16-bit WAV.
+    banner('Could not clean up the take (' + (error.message || error) + '). It was kept ' +
+           'as recorded, without noise removal or limiter.');
+    return new Blob([encodeWav(samples, rate, false)], {type: 'audio/wav'});
+  }
+}
+
+// PCM → WAV. Float (32-bit) for ffmpeg's input keeps headroom above 0 dBFS
+// until the limiter has had its say; 16-bit is the raw fallback file.
+function encodeWav(samples, rate, float) {
+  const bytesPer = float ? 4 : 2;
+  const buffer = new ArrayBuffer(44 + samples.length * bytesPer);
+  const view = new DataView(buffer);
+  const text = (at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
+  text(0, 'RIFF'); view.setUint32(4, 36 + samples.length * bytesPer, true); text(8, 'WAVE');
+  text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, float ? 3 : 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, rate, true);
+  view.setUint32(28, rate * bytesPer, true); view.setUint16(32, bytesPer, true);
+  view.setUint16(34, bytesPer * 8, true); text(36, 'data');
+  view.setUint32(40, samples.length * bytesPer, true);
+  for (let i = 0, at = 44; i < samples.length; i++, at += bytesPer) {
+    if (float) view.setFloat32(at, samples[i], true);
+    else view.setInt16(at, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true);
+  }
+  return new Uint8Array(buffer);
+}
+
+// ------------------------------------------------------ decode + waveform ---
+let playCtx = null;
+const audioCtx = () => playCtx || (playCtx = new AudioContext());
+// Decoded audio is big (≈11 MB per mono minute), so only a few sources stay
+// decoded; the small peak summary is kept for every source.
+const DECODED_KEEP = 8;
+const decoded = new Map();
+const PEAK_RATE = 200;   // min/max pairs per second of audio
+function decodeSource(src) {
+  if (decoded.has(src.sha256)) {
+    const hit = decoded.get(src.sha256);
+    decoded.delete(src.sha256);
+    decoded.set(src.sha256, hit);   // most recently used last
+    return hit;
+  }
+  const work = (async () => {
+    const buffer = await audioCtx().decodeAudioData(await src.blob.arrayBuffer());
+    if (src.duration == null || Math.abs(buffer.duration - src.duration) > 0.002) {
+      // The container's metadata can be off by the codec's priming samples;
+      // the decoded length is the truth, and whole clips follow it.
+      src.duration = buffer.duration;
+      for (const scene of state.flat())
+        for (const c of scene.clips) if (c.src === src.sha256 && c.whole) c.end = buffer.duration;
+    }
+    if (!src.peaks) src.peaks = computePeaks(buffer);
+    src.undecodable = false;
+    return buffer;
+  })();
+  work.catch(() => { decoded.delete(src.sha256); src.undecodable = true; });
+  decoded.set(src.sha256, work);
+  while (decoded.size > DECODED_KEEP) decoded.delete(decoded.keys().next().value);
+  return work;
+}
+function computePeaks(buffer) {
+  const count = Math.max(1, Math.ceil(buffer.duration * PEAK_RATE));
+  const min = new Float32Array(count), max = new Float32Array(count);
+  const channels = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
+  const per = buffer.sampleRate / PEAK_RATE;
+  for (let b = 0; b < count; b++) {
+    const s0 = Math.floor(b * per), s1 = Math.min(buffer.length, Math.floor((b + 1) * per));
+    let lo = 0, hi = 0;
+    for (let s = s0; s < s1; s++) {
+      let v = 0;
+      for (const data of channels) v += data[s];
+      v /= channels.length;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    min[b] = lo; max[b] = hi;
+  }
+  return {rate: PEAK_RATE, min, max};
+}
+
+// ------------------------------------------------------------------ player ---
+const player = {playing: false, scene: null, nodes: [], ctxStart: 0, from: 0, to: 0, raf: 0,
+                returnTo: null};
+function playheadNow() {
+  if (!player.playing) return null;
+  return Math.min(player.to, player.from + (audioCtx().currentTime - player.ctxStart));
+}
+async function playScene(scene, from, to, returnTo = null) {
+  stopPlayback();
+  const clips = scene.clips;
+  if (!clips.length) return;
+  const ctx = audioCtx();
+  await ctx.resume();
+  const end = to == null ? sceneLength(clips) : to;
+  if (from >= end - 0.01) from = 0;   // at the end: play again from the top
+  const buffers = await Promise.all(clips.map(c =>
+    decodeSource(sources.get(c.src)).catch(() => null)));
+  if (buffers.some(b => b == null))
+    banner('Part of this scene cannot be previewed in this browser; it is skipped while playing.');
+  const offsets = clipOffsets(clips);
+  const t0 = ctx.currentTime + 0.04;
+  clips.forEach((c, i) => {
+    const buffer = buffers[i];
+    const cs = offsets[i], ce = cs + clipLen(c);
+    if (!buffer || ce <= from || cs >= end) return;
+    const segStart = Math.max(cs, from), segEnd = Math.min(ce, end);
+    const when = t0 + (segStart - from), length = segEnd - segStart;
+    const node = ctx.createBufferSource();
+    node.buffer = buffer;
+    const gain = ctx.createGain();
+    node.connect(gain).connect(ctx.destination);
+    const src = sources.get(c.src);
+    // The same 8 ms fades the render applies, so the preview IS the result.
+    if (!c.whole && c.start > 0.0005 && segStart === cs) {
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(1, when + FADE);
+    }
+    if (!c.whole && c.end < src.duration - 0.0005 && segEnd === ce) {
+      gain.gain.setValueAtTime(1, when + Math.max(0, length - FADE));
+      gain.gain.linearRampToValueAtTime(0, when + length);
+    }
+    node.start(when, c.start + (segStart - cs), length);
+    player.nodes.push(node);
+  });
+  Object.assign(player, {playing: true, scene, ctxStart: t0, from, to: end, returnTo});
+  const tick = () => {
+    if (!player.playing) return;
+    const t = playheadNow();
+    scene.view.playhead = t;
+    if (t >= player.to - 0.005) {
+      const back = player.returnTo;
+      stopPlayback();
+      scene.view.playhead = back != null ? back : player.to;
+    }
+    if (current === scene) { updateTransport(); redrawTimeline(); }
+    if (player.playing) player.raf = requestAnimationFrame(tick);
+  };
+  player.raf = requestAnimationFrame(tick);
+  if (current === scene) updateTransport();
+}
+function stopPlayback() {
+  for (const node of player.nodes) { try { node.stop(); } catch (error) { /* not started */ } }
+  player.nodes = [];
+  player.playing = false;
+  cancelAnimationFrame(player.raf);
+  updateTransport();
+}
+
+// ---------------------------------------------------------------- recorder ---
+// Raw microphone (every browser DSP off — the same signal OBS gets), captured
+// sample-exact by an AudioWorklet, cleaned by `processTake` after Stop.
+const CAPTURE_WORKLET = `
+class Capture extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.on = false; this.buf = new Float32Array(8192); this.n = 0;
+    this.port.onmessage = e => {
+      if (e.data === 'start') this.on = true;
+      else if (e.data === 'stop') {
+        this.on = false;
+        if (this.n) { this.port.postMessage(this.buf.slice(0, this.n)); this.n = 0; }
+        this.port.postMessage('done');
+      }
+    };
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (this.on && ch) for (let i = 0; i < ch.length; i++) {
+      this.buf[this.n++] = ch[i];
+      if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0)); this.n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor('capture', Capture);`;
+
+const recorder = {phase: 'idle', scene: null, stream: null, ctx: null, node: null,
+                  analyser: null, chunks: [], startedAt: 0, raf: 0, peakHold: -90,
+                  clipUntil: 0, level: -90, done: null, attempt: 0};
+
+function micError(error) {
+  const name = error && error.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError')
+    return 'Microphone access is blocked for this page. Allow it (the microphone icon in ' +
+           'the address bar), then press Record again.';
+  if (name === 'NotFoundError') return 'No microphone was found. Plug one in and press Record again.';
+  if (name === 'OverconstrainedError' || name === 'NotReadableError')
+    return 'The selected microphone is not available (unplugged, or busy in another app). ' +
+           'Pick another one in Settings, or close the app using it.';
+  return 'Could not start recording: ' + (error && error.message || error);
+}
+
+async function startRecording(scene) {
+  if (recorder.phase !== 'idle') return;
+  stopPlayback();
+  recorder.phase = 'arming';
+  recorder.scene = scene;
+  const attempt = ++recorder.attempt;
+  drawRecorder();
+  try {
+    const deviceId = prefs.get('rec.device', '');
+    const stream = await navigator.mediaDevices.getUserMedia({audio: {
+      deviceId: deviceId ? {exact: deviceId} : undefined,
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      channelCount: 1,
+    }});
+    if (recorder.attempt !== attempt) {   // R pressed again while the browser asked
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    // Held on `recorder` right away, so a Stop during the awaits below
+    // (cleanupRecorder) releases the microphone instead of leaking it.
+    recorder.stream = stream;
+    let ctx;
+    try { ctx = new AudioContext({sampleRate: 48000}); } catch (error) { ctx = new AudioContext(); }
+    recorder.ctx = ctx;
+    await ctx.resume();
+    const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], {type: 'text/javascript'}));
+    try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    if (recorder.attempt !== attempt) return;
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    const node = new AudioWorkletNode(ctx, 'capture');
+    const silent = ctx.createGain();
+    silent.gain.value = 0;
+    source.connect(analyser);
+    source.connect(node).connect(silent).connect(ctx.destination);
+    Object.assign(recorder, {node, analyser, chunks: [], peakHold: -90, clipUntil: 0});
+    recorder.done = new Promise(resolve => {
+      node.port.onmessage = event => {
+        if (event.data === 'done') resolve();
+        else recorder.chunks.push(event.data);
+      };
+    });
+    setMicState('ok', 'Allowed' + (stream.getAudioTracks()[0] ? ': ' + stream.getAudioTracks()[0].label : ''));
+    refreshDevices();
+    meterLoop();
+    if (prefs.flag('rec.countin', true)) {
+      recorder.phase = 'countin';
+      drawRecorder();
+      for (const n of [3, 2, 1]) {
+        showCount(n);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        if (recorder.attempt !== attempt) return;   // cancelled mid-count
+      }
+    }
+    node.port.postMessage('start');
+    recorder.phase = 'recording';
+    recorder.startedAt = performance.now();
+    drawRecorder();
+  } catch (error) {
+    if (recorder.attempt !== attempt) return;   // already cancelled; a newer take may be arming
+    cleanupRecorder();
+    recorder.phase = 'idle';
+    recorder.scene = null;
+    drawRecorder();
+    if (error && error.name === 'NotAllowedError') setMicState('bad', 'Blocked in this browser');
+    banner(micError(error));
+  }
+}
+
+async function stopRecording() {
+  const scene = recorder.scene;
+  if (recorder.phase === 'countin' || recorder.phase === 'arming') {
+    cleanupRecorder();
+    recorder.attempt++;
+    recorder.phase = 'idle';
+    recorder.scene = null;
+    drawRecorder();
+    return;
+  }
+  if (recorder.phase !== 'recording') return;
+  recorder.phase = 'processing';
+  drawRecorder();
+  recorder.node.port.postMessage('stop');
+  await recorder.done;
+  const rate = recorder.ctx.sampleRate;
+  const total = recorder.chunks.reduce((sum, c) => sum + c.length, 0);
+  const samples = new Float32Array(total);
+  let at = 0;
+  for (const chunk of recorder.chunks) { samples.set(chunk, at); at += chunk.length; }
+  cleanupRecorder();
+  try {
+    if (total < rate * 0.3) { banner('That take was too short to keep.'); return; }
+    const blob = await processTake(samples, rate);
+    const taken = [...sources.values()].map(s => (s.name.match(/^Take (\d+)/) || [0, 0])[1] | 0);
+    const number = Math.max(0, ...taken) + 1;
+    const src = await registerSource(
+      blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true});
+    await decodeSource(src).catch(() => {});
+    commit(scene, [...scene.clips, wholeClip(src)]);
+    toast('Take ' + number + ' added to the ' + cardLabel(scene) + ' (' + clock(src.duration) + ').');
+  } catch (error) {
+    banner('Could not keep the take: ' + (error.message || error));
+  } finally {
+    recorder.phase = 'idle';
+    recorder.scene = null;
+    drawRecorder();
+  }
+}
+
+function cleanupRecorder() {
+  cancelAnimationFrame(recorder.raf);
+  if (recorder.stream) recorder.stream.getTracks().forEach(track => track.stop());
+  if (recorder.ctx) recorder.ctx.close().catch(() => {});
+  Object.assign(recorder, {stream: null, ctx: null, node: null, analyser: null, level: -90});
+}
+
+// Level meter: peak dBFS every frame, a slow peak-hold, a latched clip light.
+function meterLoop() {
+  const data = new Float32Array(2048);
+  const step = () => {
+    if (!recorder.analyser) return;
+    recorder.analyser.getFloatTimeDomainData(data);
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    const db = peak > 0 ? 20 * Math.log10(peak) : -90;
+    recorder.level = db;
+    recorder.peakHold = Math.max(db, recorder.peakHold - 0.4);
+    if (peak >= 0.989) recorder.clipUntil = performance.now() + 1500;
+    drawMeter();
+    recorder.raf = requestAnimationFrame(step);
+  };
+  recorder.raf = requestAnimationFrame(step);
+}
+
+function showCount(n) {
+  const layer = h('div', {class: 'countin'}, h('span', {text: String(n)}));
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 850);
+}
+
+// ------------------------------------------------------------- job loading ---
+function newState() {
+  state = job.items.map(item => item.scenes.map(scene => ({
+    index: scene.index, text: scene.text, original: scene.text, clips: [],
+    // The last entry may be the video's spoken sign-off rather than a scene.
+    // Carried here because every resume path (autosave, draft, session) starts
+    // from newState() and merges only text and audio back into it.
+    ending: !!scene.ending,
+    status: 'missing', ratio: 0, transcript: '', checked: false,
+    history: {undo: [], redo: []},
+    view: {pxPerSec: null, playhead: 0, sel: null, clipSel: null},
+  })));
+}
+
+function loadJobObject(parsed, mergeAutosave) {
+  // A job from a FUTURE tool version (a different dubbing-job/N — e.g. a
+  // later footage mode) must fail with "update this page", never be
+  // half-read as if it were this one.
+  if (parsed && typeof parsed.format === 'string' &&
+      parsed.format.startsWith('dubbing-job/') && parsed.format !== 'dubbing-job/2')
+    throw new Error('This job (' + parsed.format + ') needs a newer version ' +
+                    'of this page. Ask for the updated site link.');
+  if (!parsed || parsed.format !== 'dubbing-job/2')
+    throw new Error('That file is not a dubbing job (expected format "dubbing-job/2").');
+  job = parsed;
+  newState();
+  if (mergeAutosave) {
+    const saved = readAutosave();
+    state.forEach((scenes, i) => scenes.forEach(scene => {
+      const entry = (saved[i] || {})[scene.index];
+      if (entry && typeof entry.text === 'string') scene.text = entry.text;
+    }));
+  }
+  openWorkspace();
+}
+
+async function loadJobFile(file) {
+  loadJobObject(JSON.parse(await file.text()), true);
+}
+
+// Reopen one of our zips — a draft to continue, or a finished one to fix a
+// scene and export again. Both carry the same members; parts are pulled out
+// one entry at a time so a multi-gigabyte zip never lands in memory at once.
+async function loadDraftFile(file) {
+  const reader = new zip.ZipReader(new zip.BlobReader(file));
+  try {
+    const entries = await reader.getEntries();
+    const byName = new Map(entries.map(entry => [entry.filename, entry]));
+    const jobEntry = byName.get('job.json'), returnEntry = byName.get('return.json');
+    if (!jobEntry || !returnEntry)
+      throw new Error('That zip was not saved by this page ' +
+                      '(job.json and return.json missing). A zip exported ' +
+                      'before this page could reopen finished work carries ' +
+                      'no job.json — load its job .json file instead.');
+    loadJobObject(JSON.parse(await jobEntry.getData(new zip.TextWriter())), false);
+    const parsed = JSON.parse(await returnEntry.getData(new zip.TextWriter()));
+    const byProject = new Map((parsed.items || []).map(item => [item.project, item]));
+    setStatus('Opening your saved work…');
+    for (let i = 0; i < job.items.length; i++) {
+      const saved = byProject.get(job.items[i].project);
+      if (!saved) continue;
+      const scenes = new Map((saved.scenes || []).map(scene => [scene.index, scene]));
+      for (const scene of state[i]) {
+        const from = scenes.get(scene.index);
+        if (!from) continue;
+        if (typeof from.text === 'string') scene.text = from.text;
+        let lost = false;
+        for (const part of from.parts || []) {
+          const entry = byName.get(part.file);
+          if (!entry) {
+            lost = true;
+            banner('The saved zip is missing ' + part.file + ' (' + cardLabel(scene) +
+                   '). Attach or record that part again.');
+            continue;
+          }
+          const blob = await entry.getData(new zip.BlobWriter());
+          const name = part.name || part.file.split('/').pop();
+          const src = await registerSource(blob, name, {recorded: /^Take \d+/.test(name)});
+          scene.clips.push(wholeClip(src));
+        }
+        // A verdict only survives if ALL the audio it judged came back: one
+        // lost part and the check no longer describes what is attached, so the
+        // scene goes back to unchecked (and blocks the final export until it
+        // is re-checked), not just when every part is gone.
+        const stt = from.stt || {};
+        const verdict = stt.status;
+        const keep = !lost && VERDICTS.includes(verdict);
+        // The transcript rides in the zip, so the result box (diff and all)
+        // is on screen immediately — no re-check needed to see it again. It
+        // only counts as a real verdict when it was heard from exactly the
+        // parts that came back.
+        const sameParts = Array.isArray(stt.parts) &&
+          stt.parts.length === scene.clips.length &&
+          stt.parts.every((sha, k) => scene.clips[k] && scene.clips[k].src === sha);
+        scene.transcript = keep && sameParts ? (stt.transcript || '') : '';
+        // Each part's word timings ride along too; filed in the transcript
+        // cache under the part's hash, they tie the diff to the audio again
+        // on any machine (and make a re-check free).
+        if (scene.transcript && Array.isArray(stt.words) && stt.words.length === scene.clips.length)
+          for (const [k, words] of stt.words.entries())
+            await cachePut(scene.clips[k].src, {text: words.map(w => w[0]).join(' '), words});
+        scene.checked = !!scene.transcript;
+        scene.status = !scene.clips.length ? 'missing' : keep ? verdict : 'unchecked';
+        scene.ratio = keep ? (stt.ratio || 0) : 0;
+        await rehydrateVerdict(scene);   // cached transcripts, no Check click
+        drawScene(scene);
+      }
+    }
+    showScene(firstOpenScene());
+    updateProgress();
+    autosave();   // the zip is now the truth for this job id
+  } finally { await reader.close(); }
+}
+
+// ----------------------------------------------------------- verdicts ---
+// Abandons whatever check is in flight for this scene (see the run token in
+// `checkScene`): its verdict no longer describes what is on screen.
+const abandon = scene => { scene.run = (scene.run || 0) + 1; };
+
+// The file a clip would ship as, if already known without rendering: a whole
+// clip IS its source; an edited one is known once it has been rendered.
+const knownSha = clip => clip.whole ? clip.src : clip.renderedSha;
+
+// What a clip says, as {text, words}, without asking the speech service: its
+// own transcript when this exact audio was heard before (cached by hash), or
+// else its SOURCE's words that fall inside the clip's window, re-timed to the
+// clip. A split or a cut then keeps its verdict for free. A word straddling
+// a cut belongs to the side holding its midpoint. undefined when neither is
+// known: only a Check (the narrator's go-ahead to spend) can tell.
+async function heardOf(clip) {
+  const sha = knownSha(clip);
+  const own = sha ? await cacheGet(sha) : undefined;
+  if (own) return own;
+  const source = await cacheGet(clip.src);
+  if (!source) return undefined;
+  const from = clip.start * 1000, to = clip.end * 1000;
+  const words = source.words.filter(([, start, end]) => (start + end) / 2 >= from && (start + end) / 2 < to)
+    .map(([text, start, end]) => [text, Math.max(0, start - from), Math.min(to, end) - from]);
+  return {text: words.map(w => w[0]).join(' '), words};
+}
+
+// A scene whose clips are ALL heard already has its answer locally: rebuild
+// the transcript and score it, with no speech call and no Check click. This
+// is what puts the result box back on screen when a draft is reopened, what
+// makes re-attaching, reordering, splitting or cutting known audio keep its
+// verdict, and what brings a verdict back after an Undo.
+async function rehydrateVerdict(scene) {
+  if (scene.transcript || !scene.clips.length) return false;
+  const heard = [];
+  for (const clip of scene.clips) {
+    const known = await heardOf(clip);
+    if (known === undefined) return false;    // partial: leave it unchecked
+    heard.push(known.text);
+  }
+  scene.transcript = heard.join(' ').trim();
+  scene.checked = true;
+  const score = analyzeScene(scene.text, scene.transcript);
+  scene.ratio = score.ratio;
+  // An override was the narrator's deliberate decision about this exact
+  // audio; only a real re-check may take it back.
+  if (scene.status !== 'override') scene.status = verdictOf(score);
+  drawScene(scene);
+  return true;
+}
+
+// The text changed (typing, Reset, or "Rewrite to what was heard"): under a
+// KNOWN transcript the verdict is recomputed locally as you type, no new
+// speech round trip; a rewrite lands directly on its green "100% similar".
+// An override goes with it: it was a decision about the OLD words.
+function reverdict(scene) {
+  abandon(scene);
+  if (scene.transcript && scene.checked) {
+    const score = analyzeScene(scene.text, scene.transcript);
+    scene.ratio = score.ratio;
+    scene.status = verdictOf(score);
+  } else {
+    scene.status = scene.clips.length ? 'unchecked' : 'missing';
+    scene.ratio = 0;
+  }
+  drawScene(scene);
+  autosave();
+  updateProgress();
+}
+
+// Any change to the audio invalidates an earlier verdict.
+function invalidate(scene) {
+  abandon(scene);
+  scene.status = scene.clips.length ? 'unchecked' : 'missing';
+  scene.transcript = '';
+  scene.ratio = 0;
+  scene.checked = false;
+  drawScene(scene);
+  autosave();
+  updateProgress();
+}
+
+// ------------------------------------------------------------- editing ---
+// Every audio change goes through here: one undo step, a verdict re-derived
+// when the new arrangement is already known to the cache.
+//
+// A history step remembers the verdict next to the clips, so Undo also gives
+// back a "Kept as written" (a decision no cache can re-derive), as long as
+// the line still reads as it did when that verdict was given.
+const snapshot = scene => ({clips: scene.clips, text: scene.text, verdict: {status: scene.status,
+  ratio: scene.ratio, transcript: scene.transcript, checked: scene.checked}});
+async function commit(scene, clips) {
+  if (clips === scene.clips) return;
+  scene.history.undo.push(snapshot(scene));
+  if (scene.history.undo.length > 200) scene.history.undo.shift();
+  scene.history.redo = [];
+  await setClips(scene, clips, null);
+}
+function step(scene, from, to) {
+  if (!from.length) return;
+  to.push(snapshot(scene));
+  const back = from.pop();
+  const keep = back.text === scene.text && back.verdict.status !== 'working';
+  setClips(scene, back.clips, keep ? back.verdict : null);
+}
+const undo = scene => step(scene, scene.history.undo, scene.history.redo);
+const redo = scene => step(scene, scene.history.redo, scene.history.undo);
+async function setClips(scene, clips, verdict) {
+  stopPlayback();
+  scene.clips = clips;
+  scene.view.sel = null;
+  if (!clips.some(c => c.id === scene.view.clipSel)) scene.view.clipSel = null;
+  scene.view.playhead = Math.min(scene.view.playhead, sceneLength(clips));
+  if (verdict) {
+    abandon(scene);
+    Object.assign(scene, verdict);
+    drawScene(scene);
+    autosave();
+    updateProgress();
+  } else {
+    invalidate(scene);
+    await rehydrateVerdict(scene);
+  }
+  if (current === scene) { fitIfNeeded(scene); redrawTimeline(); updateTransport(); }
+}
+// Split and cut make clips that only exist as a render: without ffmpeg they
+// could be heard here but never checked or exported.
+let ffmpegFailed = false;
+function canEdit() {
+  if (ffmpegFailed) banner('Splitting, and deleting part of a clip, need ffmpeg, which is not ' +
+                           'available on this page (see the message above). Recording, ' +
+                           'attaching, reordering and deleting whole clips still work.');
+  return !ffmpegFailed;
+}
+// Two tools, as in a video editor. Split cuts the audio into pieces (at the
+// playhead, or around the selection so that stretch becomes its own clip,
+// selected, ready to drag or delete). Delete removes what is selected: a
+// stretch of the wave, or a whole clip.
+function splitHere(scene) {
+  if (!canEdit()) return;
+  const sel = scene.view.sel;
+  if (sel) {
+    const next = splitAt(splitAt(scene.clips, sel[0]), sel[1]);
+    scene.view.clipSel = next[locate(next, sel[0] + MIN_CLIP / 2).i].id;
+    scene.view.sel = null;
+    if (next === scene.clips) { updateTransport(); redrawTimeline(); }
+    else commit(scene, next);
+    return;
+  }
+  const next = splitAt(scene.clips, scene.view.playhead);
+  if (next === scene.clips) {
+    banner('Move the playhead inside a clip (click the waveform) to split there.');
+    return;
+  }
+  commit(scene, next);
+}
+function deleteSelection(scene) {
+  const sel = scene.view.sel;
+  if (sel) {
+    if (!canEdit()) return;
+    scene.view.playhead = sel[0];
+    commit(scene, cutRange(scene.clips, sel[0], sel[1]));
+    return;
+  }
+  const i = scene.clips.findIndex(c => c.id === scene.view.clipSel);
+  if (i >= 0) commit(scene, removeClip(scene.clips, i));
+}
+
+// ------------------------------------------------------------ attaching ---
+async function addParts(scene, files) {
+  // A whole recording session lands in one pick: sort the batch by name
+  // (digit-aware, so pt2 < pt10) — attach order then already matches the
+  // narrator's own part numbering. Reordering by hand stays possible.
+  const batch = [...files].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+  const added = [];
+  for (const file of batch) {
+    const ext = extOf(file.name);
+    if (!MEDIA_EXT.includes(ext)) {
+      banner('"' + file.name + '" is not an audio or video file the tool accepts (' +
+             MEDIA_EXT.join(' ') + ').');
+      continue;
+    }
+    try {
+      let blob = file;
+      if (prefs.flag('stripVideo', true) && VIDEO_EXT.includes(ext)) {
+        setStatus('Extracting the audio of ' + file.name + '…');
+        try {
+          const before = file.size;
+          blob = await extractAudio(file);
+          toast('Audio extracted from ' + file.name + ': ' +
+                megabytes(before) + ' → ' + megabytes(blob.size) + '.');
+        } catch (error) {
+          blob = file;
+          banner('Could not extract the audio of "' + file.name + '" (' +
+                 (error.message || error) + '). Keeping the original file, ' +
+                 'which makes the upload and the zip much heavier.');
+        }
+      }
+      setStatus('Reading ' + file.name + '…');
+      const src = await registerSource(blob, blob.name || file.name);
+      decodeSource(src).then(() => { if (current === scene) redrawTimeline(); }).catch(() => {});
+      added.push(wholeClip(src));
+    } catch (error) { banner('Could not read "' + file.name + '": ' + (error.message || error)); }
+  }
+  updateProgress();
+  if (added.length) await commit(scene, [...scene.clips, ...added]);
+}
+
+const videoSources = () => [...new Set(state.flat().flatMap(scene => scene.clips.map(c => c.src)))]
+  .map(sha => sources.get(sha)).filter(src => VIDEO_EXT.includes(extOf(src.name)));
+
+// Files attached before ffmpeg worked (or with "audio only" off) still carry a
+// dead video track into every upload and zip. Stream copy is lossless, so the
+// audio is sample-identical: clips keep their windows, and the transcript of a
+// whole file is re-filed under the new file's hash, so no verdict is lost.
+async function shrinkAttachedVideos() {
+  const targets = videoSources();
+  if (!targets.length) { banner('No attached recording still carries video.'); return; }
+  $('shrinkBtn').disabled = true;
+  let saved = 0, failed = 0;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const old = targets[i];
+      setStatus('Extracting audio ' + (i + 1) + ' of ' + targets.length + '…');
+      try {
+        const smaller = await extractAudio(new File([old.blob], old.name, {type: old.blob.type}));
+        const src = await registerSource(smaller, smaller.name);
+        const heard = await cacheGet(old.sha256);
+        if (heard !== undefined) await cachePut(src.sha256, heard);
+        for (const scene of state.flat()) {
+          if (!scene.clips.some(c => c.src === old.sha256)) continue;
+          scene.clips = scene.clips.map(c => c.src !== old.sha256 ? c
+            : c.whole ? wholeClip(src) : {...c, id: newClipId(), src: src.sha256});
+          drawScene(scene);
+        }
+        saved += old.blob.size - smaller.size;
+      } catch (error) {
+        failed++;
+        banner('Could not extract the audio of "' + old.name + '": ' + (error.message || error));
+      }
+    }
+  } finally {
+    $('shrinkBtn').disabled = false;
+    autosave();
+    updateProgress();
+    if (current) { redrawTimeline(); }
+  }
+  if (saved > 0)
+    toast('Freed ' + megabytes(saved) + ' from the attached recordings' +
+          (failed ? ' (' + failed + ' could not be converted)' : '') + '.');
+}
+
+// ------------------------------------------------------------------ checking ---
+function sttKey() {
+  const key = $('key').value.trim();
+  if (!key) throw new Error(
+    'Enter your speech key in Settings first. A free one takes a minute: ' + KEY_URL);
+  return key;
+}
+
+async function checkScene(scene) {
+  let key;
+  try { key = sttKey(); } catch (error) { say(error); return; }
+  if (!scene.clips.length) { invalidate(scene); return; }
+  // A check lives across several network round trips, and the narrator can
+  // edit or reorder while it runs. Every later run bumps the token, so a
+  // stale run writes nothing: it scored an arrangement that no longer exists.
+  const run = scene.run = (scene.run || 0) + 1;
+  const clips = scene.clips.slice();
+  const text = scene.text;
+  scene.status = 'working';
+  drawScene(scene);
+  try {
+    const language = job.locale.split('-')[0];
+    const heard = [];
+    for (const clip of clips) {
+      const part = await materialize(clip);   // an edited clip renders first
+      if (scene.run !== run) return;
+      let got = await cacheGet(part.sha256);
+      if (scene.run !== run) return;
+      if (got === undefined) {
+        got = await sttTranscript(part.blob, key, language);
+        if (scene.run !== run) return;
+        await cachePut(part.sha256, got);
+      }
+      heard.push(got.text);
+    }
+    if (scene.run !== run) return;
+    scene.transcript = heard.join(' ').trim();
+    scene.checked = true;   // a live check backs this verdict (vs a restored one)
+    const score = analyzeScene(text, scene.transcript);
+    scene.ratio = score.ratio;
+    scene.status = verdictOf(score);
+  } catch (error) {
+    if (scene.run !== run) return;
+    scene.status = scene.clips.length ? 'unchecked' : 'missing';
+    banner('Speech check failed on the ' + cardLabel(scene) + ': ' +
+           (error.message || error));
+  }
+  drawScene(scene);
+  autosave();
+  updateProgress();
+}
+
+async function checkAll() {
+  try { sttKey(); } catch (error) { say(error); return; }
+  // Exactly "press Check on every scene that has audio" — including the ones
+  // already green, since a re-check reads the cache (keyed by each part's
+  // sha256) and costs no upload. Strictly one at a time: the speech service
+  // rate-limits parallel uploads, and the run tokens assume no second sweep.
+  const pending = state.flat().filter(scene => scene.clips.length);
+  if (!pending.length) { banner('No scene has audio yet.'); return; }
+  $('checkAllBtn').disabled = true;
+  let done = 0, failed = 0;
+  try {
+    for (const scene of pending) {
+      setStatus('Checking ' + (done + 1) + ' of ' + pending.length + ' scenes…');
+      await checkScene(scene);
+      if (scene.status === 'unchecked') failed++;
+      done++;
+    }
+  } finally {
+    $('checkAllBtn').disabled = false;
+    updateProgress();
+  }
+  toast('Checked ' + done + ' scene(s)' +
+        (failed ? ', ' + failed + ' could not be checked (see the messages above)' : '') + '.');
+}
+
+// ------------------------------------------------------------------ alerts ---
+// YouTube only shows end-screen cards over the last 20 seconds of a video, so
+// a sign-off longer than that starts playing before anything is clickable.
+// Worth saying once; never a reason to stop the narrator recording it.
+const END_SCREEN_SECONDS = 20;
+function endingLengthAlerts(scene) {
+  if (!scene.ending || !scene.clips.length) return [];
+  const total = sceneLength(scene.clips);
+  if (total <= END_SCREEN_SECONDS) return [];
+  return ['This ending runs ' + clock(total) + '. YouTube only shows end-screen '
+    + 'cards over the last ' + END_SCREEN_SECONDS + ' seconds, so the start of '
+    + 'it plays without them. Fine to keep — just worth knowing.'];
+}
+
+// Warnings, never blocking: the digits in the narrator's own file names
+// carry a chapter and a part number, and when they disagree with where or
+// how the files sit, something is probably attached wrong. The names are
+// theirs; the order on the timeline is the truth.
+// Only the narrator's own attached FILES are read (a take recorded here is
+// named by the page), each once in timeline order, so a split file does not
+// look like a duplicated part.
+function partNameAlerts(scene) {
+  const names = [];
+  for (const c of scene.clips) {
+    const src = sources.get(c.src);
+    if (!src.recorded && !names.includes(src.name)) names.push(src.name);
+  }
+  if (names.length < 2) return [];
+  const alerts = [];
+  const numbers = names.map(name =>
+    (stem(name).match(/\d+/g) || []).map(Number));
+  const chapters = [...new Set(numbers.filter(n => n.length).map(n => n[0]))];
+  if (chapters.length > 1)
+    alerts.push('The file names look like different scenes (' +
+      chapters.join(' and ') + '). Is one of them in the wrong scene?');
+  // LAST digit-run = the part number ("Chapter 3 pt2", "scene3_part1", and
+  // this site's own resumed names "0_3_p1" all agree on that); first = chapter.
+  const partNumbers = numbers.map(n => n.length > 1 ? n[n.length - 1] : null);
+  const carried = partNumbers.filter(p => p !== null);
+  if (carried.length && carried.length < partNumbers.length)
+    alerts.push('Some file names carry a part number and some do not. ' +
+      'Double-check that every part is here.');
+  if (carried.length > 1) {
+    const sorted = [...carried].sort((x, y) => x - y);
+    const completeRun = new Set(sorted).size === sorted.length &&
+      sorted.every((v, k) => v === sorted[0] + k);
+    if (!completeRun)
+      alerts.push('The part numbers in the file names are not a complete ' +
+        'run (found ' + sorted.join(', ') + '). Is a part missing or duplicated?');
+    else if (!carried.every((v, k) => k === 0 || v > carried[k - 1]))
+      alerts.push('The order on the timeline does not match the part numbers in ' +
+        'the file names. Drag the clips into order.');
+  }
+  return alerts;
+}
+
+// ------------------------------------------------------------------ progress ---
+// clips.length is part of the test, not an implied one: a restored `override`
+// with nothing attached would otherwise arm Export and be rejected downstream.
+// A check's verdict. Between the pass mark and SIMILAR_ENOUGH the take is
+// `close`: amber, and like a mismatch it blocks the export until the narrator
+// listens and keeps the text (a wrong word hides easily in a 67%). So a zip
+// only ever says `ok` for 90% and up; `close` never reaches a final export.
+const VERDICTS = ['ok', 'close', 'override', 'mismatch'];
+const verdictOf = score => !score.ok ? 'mismatch' : score.ratio >= SIMILAR_ENOUGH ? 'ok' : 'close';
+const isDone = scene => (scene.status === 'ok' || scene.status === 'override') &&
+  scene.text.trim() !== '' && scene.clips.length > 0;
+
+const setStatus = text => { $('status').textContent = text; };
+function updateProgress() {
+  if (!job) return;
+  const scenes = state.flat();
+  const done = scenes.filter(isDone).length;
+  const blank = scenes.filter(scene => scene.text.trim() === '').length;
+  const heavy = videoSources().length;
+  $('shrinkBtn').classList.toggle('hidden', heavy === 0);
+  $('shrinkBtn').replaceChildren(icon('shrink'), h('span', {class: 'label', text: 'Shrink ' + heavy + ' video file(s)'}));
+  $('exportBtn').disabled = done !== scenes.length;
+  const endings = scenes.filter(scene => scene.ending).length;
+  const what = (scenes.length - endings) + ' scenes' + (endings ? ' + ending' : '');
+  $('status').textContent = done + ' of ' + what + ' ready' +
+    (blank ? ' · ' + blank + ' recording(s) have an empty line, fill them in' : '') +
+    (recorder.phase === 'recording' ? ' · recording the ' + cardLabel(recorder.scene) : '') +
+    (done === scenes.length ? ' · ready to export' : '');
+  const circumference = 2 * Math.PI * 15;
+  $('ringFill').style.strokeDashoffset = circumference * (1 - done / Math.max(1, scenes.length));
+  $('ringText').textContent = done + '/' + scenes.length;
+  $('progressLabel').replaceChildren(h('b', {text: String(done)}), ' of ' + scenes.length + ' ready');
+}
+
+// -------------------------------------------------------------------- export ---
+const partName = (itemIdx, scene, k, part) =>
+  'audio/' + itemIdx + '_' + scene.index + '_p' + (k + 1) + part.ext;
+
+// Every clip as the file that ships: whole clips are their sources as-is,
+// edited clips render to FLAC (memoized — a check already rendered them).
+async function materializeAll() {
+  const total = state.flat().reduce((sum, scene) => sum + scene.clips.length, 0);
+  let done = 0;
+  const plan = [];
+  for (const scenes of state) {
+    const row = [];
+    for (const scene of scenes) {
+      const parts = [];
+      for (const clip of scene.clips) {
+        setStatus('Preparing audio ' + (++done) + ' of ' + total + '…');
+        const part = await materialize(clip);
+        const src = sources.get(clip.src);
+        parts.push({...part, name: stem(src.name) + part.ext, heard: await heardOf(clip)});
+      }
+      row.push(parts);
+    }
+    plan.push(row);
+  }
+  return plan;
+}
+
+function buildReturn(draft, plan) {
+  return {
+    format: 'dubbing-return/2',
+    job_id: job.job_id,
+    draft: draft,
+    generated_at: new Date().toISOString().slice(0, 19),
+    items: job.items.map((item, i) => ({
+      project: item.project,
+      scenes: state[i].map((scene, n) => ({
+        index: scene.index,
+        text: scene.text,
+        // `name` is only for people: a reopened zip shows "Take 3" again
+        // instead of the member name. The desktop import ignores it.
+        parts: plan[i][n].map((part, k) => ({
+          file: partName(i, scene, k, part), sha256: part.sha256, name: part.name,
+        })),
+        // `working` is a spinner, not a verdict: a draft saved mid-check must
+        // reopen as something the narrator can act on.
+        //
+        // The TRANSCRIPT travels with the verdict, and it is the evidence the
+        // score is re-derived from — by a resumed draft (so the diff is on
+        // screen before any re-check) and by the desktop import (so it shows
+        // the same diff without paying for speech-to-text again). `parts` is
+        // the sha256 list it was heard from: a reader compares it with the
+        // files actually in the zip and re-checks when they differ. `words`
+        // is, per part, [word, start ms, end ms] as the speech service timed
+        // it — only when every part has them — so a reopened zip can still
+        // follow and seek the audio from the diff. The desktop ignores it.
+        stt: {status: scene.status === 'working' ? 'unchecked' : scene.status,
+              ratio: Math.round(scene.ratio * 10000) / 10000,
+              transcript: scene.checked ? scene.transcript : '',
+              parts: scene.checked ? plan[i][n].map(part => part.sha256) : [],
+              words: scene.checked && plan[i][n].every(part => part.heard)
+                ? plan[i][n].map(part => part.heard.words) : []},
+      })),
+    })),
+  };
+}
+
+async function writeZip(draft, filename) {
+  // Ask for the destination before any await chain, while the click is still
+  // "user activated", then stream into it. STORE (level 0): media does not
+  // compress, and this keeps a multi-gigabyte export off the heap.
+  let handle = null;
+  if (window.showSaveFilePicker) {
+    try {
+      handle = await showSaveFilePicker({suggestedName: filename,
+        types: [{description: 'Zip archive', accept: {'application/zip': ['.zip']}}]});
+    } catch (error) {
+      if (error.name === 'AbortError') return false;
+      handle = null;   // no picker permission, fall back to a download
+    }
+  }
+  const plan = await materializeAll();
+  const stream = handle ? await handle.createWritable() : null;
+  const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'),
+                                   {level: 0});
+  const report = buildReturn(draft, plan);
+  await writer.add('return.json', new zip.TextReader(JSON.stringify(report, null, 2)),
+                   {level: 0});
+  // The job rides in every zip, draft or finished: `return.json` alone has
+  // no locale, no labels and no approved text, so without it a reopened zip
+  // could not tell Reset what the script originally said. The desktop
+  // import only reads return.json and the parts it names, so this member is
+  // invisible there.
+  await writer.add('job.json', new zip.TextReader(JSON.stringify(job)), {level: 0});
+  let written = 0;
+  const total = plan.flat(2).length;
+  for (let i = 0; i < job.items.length; i++)
+    for (const [n, scene] of state[i].entries())
+      for (const [k, part] of plan[i][n].entries()) {
+        await writer.add(partName(i, scene, k, part), new zip.BlobReader(part.blob), {level: 0});
+        setStatus('Writing ' + (++written) + ' of ' + total + ' audio files…');
+      }
+  const blob = await writer.close();
+  if (stream) {
+    // zip.js closes a WritableStream it was handed; closing twice throws.
+    try { await stream.close(); } catch (error) { /* already closed */ }
+  } else {
+    const url = URL.createObjectURL(blob);
+    const link = h('a', {href: url, download: filename});
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  updateProgress();
+  return true;
+}
+
+function jobSlug() {
+  const video = job.items[0].project.split('/')[0].split('_').slice(0, 4).join('_');
+  const scripts = job.items.map(item => {
+    if (!item.project.includes('/')) return 'main';
+    const digits = item.project.split('/').pop().match(/^\d+/);
+    return digits ? 's' + digits[0] : item.project.split('/').pop();
+  }).join('_');
+  return video + '_' + scripts + '_' + job.locale;
+}
+
+function timeStamp() {
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  return now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+       + '_' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds());
+}
+
+async function saveZip(draft) {
+  // The timestamp tells apart the drafts piling up on the narrator's disk
+  // (and re-exports of the same job); the id inside the zip does the real
+  // matching, the filename is only for people.
+  const name = (draft ? 'draft_' : 'complete_')
+    + jobSlug() + '_' + timeStamp() + '.zip';
+  const buttons = [$('exportBtn'), $('saveDraftBtn'), $('checkAllBtn')];
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    if (await writeZip(draft, name)) {
+      toast(draft
+        ? 'Draft saved: ' + name + '. Load it on this page later to continue.'
+        : 'Completed zip saved: ' + name + '. Upload it to the shared Drive folder.',
+        !draft && job.drive_folder_url ? {label: 'Open the Drive folder', run: openDrive} : null);
+      if (!draft) {
+        // The zip is the deliverable; the browser copies have done their job.
+        try { localStorage.removeItem(autosaveKey()); } catch (error) {}
+        await sessionClear();
+      }
+    }
+  }
+  catch (error) { banner('Could not write the zip: ' + (error.message || error)); }
+  $('saveDraftBtn').disabled = false;
+  $('checkAllBtn').disabled = false;
+  updateProgress();
+}
+
+// ======================================================================= UI ===
+function openWorkspace() {
+  $('load').classList.add('hidden');
+  $('workspace').classList.remove('hidden');
+  $('bar').classList.remove('hidden');
+  $('ring').classList.remove('hidden');
+  $('progressLabel').classList.remove('hidden');
+  $('moreMenu').classList.remove('hidden');
+  $('railToggle').classList.remove('hidden');
+  // The video's own folder name (number included), then what this job covers.
+  const crumbs = $('crumbs');
+  crumbs.replaceChildren(h('span', {class: 'sep'}),
+    h('span', {class: 'video', title: job.items[0].project.split('/')[0],
+               text: job.items[0].project.split('/')[0]}),
+    h('span', {class: 'chip locale', text: job.locale}),
+    ...job.items.map(item => h('span', {class: 'chip', text: itemKind(item)})));
+  $('driveBtn').classList.toggle('hidden', !job.drive_folder_url);
+  $('driveSep').classList.toggle('hidden', !job.drive_folder_url);
+  renderRail();
+  showScene(firstOpenScene());
+  updateProgress();
+}
+
+const allScenes = () => state.flat();
+const firstOpenScene = () => allScenes().find(scene => !isDone(scene)) || allScenes()[0];
+function neighbor(delta) {
+  const list = allScenes();
+  const i = list.indexOf(current);
+  return list[Math.min(list.length - 1, Math.max(0, i + delta))];
+}
+const itemOf = scene => state.findIndex(scenes => scenes.includes(scene));
+function sceneCountLabel(i) {
+  const endings = state[i].filter(scene => scene.ending).length;
+  return (state[i].length - endings) + ' scenes' + (endings ? ' + ending' : '');
+}
+const preview = text => text.replace(/\s+/g, ' ').trim() || '(empty line)';
+
+// ------------------------------------------------------------------ rail ---
+function renderRail() {
+  const rail = $('rail');
+  rail.replaceChildren();
+  job.items.forEach((item, i) => {
+    const group = h('div', {class: 'rail-group'},
+      h('div', {class: 'rail-head'},
+        h('span', {class: 'kind', text: itemKind(item)}),
+        h('span', {class: 'name', title: itemName(item), text: itemName(item)}),
+        h('span', {class: 'count', text: sceneCountLabel(i)})));
+    for (const scene of state[i]) {
+      scene.railEl = h('button', {class: 'rail-row', onclick: () => { showScene(scene); closeRail(); }});
+      group.append(scene.railEl);
+      paintRailRow(scene);
+    }
+    rail.append(group);
+  });
+}
+function paintRailRow(scene) {
+  const row = scene.railEl;
+  if (!row) return;
+  const live = recorder.phase !== 'idle' && recorder.scene === scene;
+  const takes = scene.clips.length;
+  row.classList.toggle('current', scene === current);
+  row.title = cardLabel(scene) + ': ' + STATUS_TEXT[scene.status];
+  row.replaceChildren(
+    statusIcon(scene.status),
+    h('span', {class: 'num', text: scene.ending ? 'End' : String(scene.index + 1)}),
+    h('span', {class: 'txt', text: preview(scene.text)}),
+    h('span', {class: 'meta', style: live ? 'color:var(--rec);font-weight:700' : '',
+               text: live ? '● REC' : takes ? clock(sceneLength(scene.clips)) : ''}));
+}
+
+// ----------------------------------------------------------------- focus ---
+const ui = {checkDrawn: 0};   // checkDrawn only ever grows: see linkWords
+function showScene(scene) {
+  if (!scene) return;
+  if (current !== scene) stopPlayback();
+  const previous = current;
+  current = scene;
+  if (previous) paintRailRow(previous);
+  paintRailRow(scene);
+  scene.railEl && scene.railEl.scrollIntoView({block: 'nearest'});
+  buildFocus(scene);
+  $('prevBtn').disabled = neighbor(-1) === scene;
+  $('nextBtn').disabled = neighbor(1) === scene;
+}
+
+function buildFocus(scene) {
+  const i = itemOf(scene);
+  const list = state[i];
+  const position = scene.ending ? 'ending'
+    : 'scene ' + (scene.index + 1) + ' of ' + list.filter(s => !s.ending).length;
+
+  ui.words = [];
+  ui.nowWord = null;
+  // Reading
+  ui.area = h('textarea', {spellcheck: 'false', 'aria-label': 'The line to read for ' + cardLabel(scene),
+                           placeholder: 'This line is empty. Type what should be read here.'});
+  ui.area.value = scene.text;
+  ui.reset = h('button', {class: 'btn sm', title: 'Reload the original script text',
+    onclick: () => {
+      if (!confirm('Reload the original script text for this scene?\n' +
+                   'Your changes to this text will be lost.')) return;
+      scene.text = scene.original;
+      ui.area.value = scene.text;
+      fitArea();
+      reverdict(scene);
+    }}, icon('refresh', 'sm'), 'Reset text');
+
+  // Header. Reset sits under the text size, never over the words; its space is
+  // always kept, so it appearing on the first keystroke moves nothing.
+  ui.pill = h('span', {class: 'pill'});
+  const head = h('div', {class: 'scene-head'},
+    h('div', {},
+      h('div', {class: 'eyebrow', text: itemKind(job.items[i]) + ' · ' + position}),
+      h('h2', {class: 'scene-title', text: cardLabel(scene)})),
+    ui.pill, h('span', {class: 'spacer'}),
+    h('div', {class: 'head-tools'}, textSizeControl(), ui.reset));
+  ui.area.oninput = () => {
+    fitArea();
+    if (ui.area.value === scene.text) return;
+    scene.text = ui.area.value;
+    // Reset arms on ANY divergence from the original.
+    ui.reset.classList.toggle('invisible', scene.text === scene.original);
+    reverdict(scene);
+  };
+  const reading = h('div', {class: 'card reading'}, ui.area);
+
+  ui.dock = h('div', {class: 'dock'});
+  buildAudio(scene);
+
+  ui.notes = h('div', {class: 'notes'});
+  ui.check = h('div', {class: 'card'});
+
+  // The line, its check right under it, then the notes about the audio's
+  // parts. The audio itself is docked below, outside the scrolling part.
+  ui.page = h('div', {class: 'focus-scroll'},
+    h('div', {class: 'focus-inner'}, head, reading, ui.check, ui.notes));
+  $('focus').replaceChildren(ui.page, ui.dock);
+  fitArea();
+  drawScene(scene);
+}
+
+// The line grows to fit: the narrator reads from it while recording, so no
+// sentence may hide behind an inner scrollbar.
+function fitArea() {
+  if (!ui.area) return;
+  ui.area.style.height = 'auto';
+  ui.area.style.height = (ui.area.scrollHeight + 2) + 'px';
+}
+
+function textSizeControl() {
+  const set = delta => {
+    const size = Math.max(18, Math.min(44, readSize() + delta));
+    applyReadSize(size);
+  };
+  return h('div', {class: 'seg', title: 'Reading text size'},
+    h('button', {'aria-label': 'Smaller text', onclick: () => set(-2), text: 'A−'}),
+    h('button', {'aria-label': 'Larger text', onclick: () => set(2), text: 'A+'}));
+}
+const readSize = () => parseInt(prefs.get('readSize', '26'), 10) || 26;
+function applyReadSize(size) {
+  document.documentElement.style.setProperty('--read-size', size + 'px');
+  prefs.set('readSize', String(size));
+  $('readSize').value = size;
+  $('readSizeLabel').textContent = size + ' px';
+  fitArea();
+}
+
+// Everything that depends on a scene's state, repainted after any change.
+function drawScene(scene) {
+  paintRailRow(scene);
+  if (scene !== current || !ui.pill) return;
+  ui.pill.className = 'pill ' + scene.status;
+  ui.pill.replaceChildren(statusIcon(scene.status), STATUS_TEXT[scene.status]
+    + (['ok', 'close', 'mismatch'].includes(scene.status) ? ' · ' + Math.round(scene.ratio * 100) + '%' : ''));
+  ui.reset.classList.toggle('invisible', scene.text === scene.original);
+
+  // The ending's length first: it is about the whole take, the name warnings
+  // are about how its parts are ordered.
+  const alerts = [...endingLengthAlerts(scene), ...partNameAlerts(scene)];
+  ui.notes.replaceChildren(...alerts.map(text => h('div', {class: 'note'}, icon('warn'), h('div', {text}))));
+  drawCheck(scene);
+  if (ui.timelineFor !== scene || !!ui.canvas !== !!scene.clips.length) buildAudio(scene);
+  updateTransport();
+  redrawTimeline();
+}
+
+// ------------------------------------------------------------- check card ---
+function drawCheck(scene) {
+  // Every redraw counts, with or without a diff: a linkWords still waiting
+  // from an earlier draw (or another scene) must see the card has moved on.
+  const drawn = ++ui.checkDrawn;
+  const card = ui.check;
+  const head = h('div', {class: 'card-head'}, h('h3', {text: 'Speech check'}), h('span', {class: 'spacer'}));
+  const body = h('div', {class: 'card-body'});
+  const checkBtn = h('button', {class: 'btn' + (scene.status === 'unchecked' ? ' primary' : ''),
+    disabled: scene.status === 'working' || !scene.clips.length,
+    onclick: () => checkScene(scene)}, icon('listen', 'sm'),
+    scene.status === 'unchecked' || scene.status === 'missing' ? 'Check' : 'Check again',
+    h('span', {class: 'kbd-hint', text: 'C'}));
+  head.append(checkBtn);
+
+  const shown = VERDICTS.includes(scene.status);
+  const pct = Math.round(scene.ratio * 100);
+  let analysis = null;
+  if (scene.status === 'working') {
+    body.append(h('div', {class: 'empty-check'}, statusIcon('working'),
+      h('div', {class: 'what'}, h('b', {text: 'Listening…'}),
+        'Transcribing each part and comparing it with the line. Parts already checked come from the cache.')));
+  } else if (!shown) {
+    body.append(h('div', {class: 'empty-check'},
+      h('div', {class: 'what'},
+        h('b', {text: scene.clips.length ? 'Not checked yet' : 'No audio yet'}),
+        scene.clips.length
+          ? 'The check transcribes this audio and compares it with the line, to catch a wrong, swapped or missing take. Rewording is fine; it is tolerant on purpose.'
+          : 'Record a take or drop your recording below, then check it here.')));
+  } else if (!scene.transcript) {
+    body.append(h('div', {class: 'empty-check'}, h('div', {class: 'what'},
+      h('b', {text: scene.checked ? 'Nothing was heard in this audio.' : 'Restored from your saved work.'}),
+      scene.checked
+        ? 'The speech check returned no words at all. Either the take is silent, or it is music or tone only. Play it back before keeping it.'
+        : 'Run Check again to see the similarity and the word-by-word comparison.')));
+  } else {
+    analysis = analyzeScene(scene.text, scene.transcript);
+    const low = scene.ratio < SIMILAR_ENOUGH;
+    const tone = {ok: 'var(--ok)', close: 'var(--warn)', override: 'var(--warn)'}[scene.status] || 'var(--bad)';
+    body.append(
+      h('div', {class: 'verdict'},
+        h('div', {class: 'score ' + scene.status}, String(pct), h('small', {text: '%'}),
+          low ? h('span', {class: 'blink', title: 'Low similarity: listen before trusting this take'}, icon('warn')) : null),
+        h('div', {class: 'what'},
+          h('b', {text: {ok: 'Matches the line', close: 'Close to the line', override: 'Kept as written'}[scene.status]
+                  || "Doesn't match the line"}),
+          h('span', {text: {
+            mismatch: 'Listen to the take. If the audio is right, keep your text; if the wording changed, rewrite the line to what was heard.',
+            close: 'Listen to the differences below: a wrong word can hide in them. If the audio is right, keep your text; if the wording changed, rewrite the line to what was heard.',
+          }[scene.status] || 'Similarity between the line and what the speech check heard.'}))),
+      h('div', {class: 'gauge'},
+        h('div', {class: 'g-fill', style: 'width:' + pct + '%;background:' + tone}),
+        h('div', {class: 'tick', style: 'left:' + (STT_OK * 100) + '%', title: 'Minimum to pass'}),
+        h('div', {class: 'tick', style: 'left:' + (SIMILAR_ENOUGH * 100) + '%', title: 'Similar enough'})),
+      h('div', {class: 'gauge-labels'},
+        h('span', {style: 'left:' + (STT_OK * 100) + '%', text: 'pass ' + Math.round(STT_OK * 100) + '%'}),
+        h('span', {style: 'left:' + (SIMILAR_ENOUGH * 100) + '%', text: Math.round(SIMILAR_ENOUGH * 100) + '%'})));
+    if (analysis.missingChunk)
+      body.append(h('div', {class: 'stt-warn'}, icon('warn', 'sm'),
+        'A stretch of the line was never heard at all — maybe a part is missing?'));
+    if (analysis.extraHeard)
+      body.append(h('div', {class: 'stt-warn'}, icon('warn', 'sm'),
+        analysis.extra + ' words were heard that are not in the line: a retake left in, or a ' +
+        'part from another scene? They are the red words; click one to hear it, then cut it.'));
+    // Off, the diff reads as the transcript alone: what was heard, the words
+    // heard INSTEAD of the line still in red, the line's own words hidden.
+    const showWritten = prefs.flag('check.written', true);
+    const diff = h('div', {class: 'diff'});
+    for (const op of analysis.ops) {
+      if (!op.display || (!showWritten && op.kind === 'del')) continue;
+      // A phantom carries a HEARD word (the matched tail of a contraction
+      // whose head was reworded away), so it reads as one.
+      const cls = op.phantom ? 'ins' : op.kind !== 'eq' ? op.kind : null;
+      diff.append(h('span', {class: cls, text: op.display, 'data-at': op.at}), ' ');
+    }
+    body.append(diff, h('div', {class: 'legend'},
+      showWritten ? h('span', {}, h('span', {class: 'del', text: 'written'}), ' in the line but not heard') : null,
+      h('span', {}, h('span', {class: 'ins', text: 'heard'}), ' instead'),
+      h('span', {text: 'punctuation and accents ignored'}),
+      h('label', {class: 'toggle'},
+        h('input', {type: 'checkbox', checked: showWritten, onchange: event => {
+          prefs.set('check.written', event.target.checked ? '1' : '0');
+          drawCheck(scene);
+        }}), 'Show the written words')));
+  }
+  // Keep is offered on every mismatch, even one with an empty transcript: a
+  // silent or music-only take is exactly the case that needs it.
+  const actions = h('div', {class: 'actions'});
+  if (scene.status === 'mismatch' || scene.status === 'close') {
+    actions.append(h('button', {class: 'btn', title: 'Ignore the similarity check for this scene',
+      onclick: () => {
+        if (scene.ratio < SIMILAR_ENOUGH &&
+            !confirm('Are you totally sure? The similarity is only ' + pct +
+                     '%.\nThe audio may not match this text.')) return;
+        scene.status = 'override';
+        drawScene(scene);
+        autosave();
+        updateProgress();
+      }}, icon('check', 'sm'), "Keep the scene's text"));
+  }
+  if (analysis && analysis.ops.some(op => op.kind !== 'eq')) {
+    actions.append(h('button', {class: 'btn', title: 'Replace the written words with the detected ones',
+      onclick: () => {
+        if (!confirm('This rewrites the scene to what the speech check ' +
+                     'heard.\nThe STT can mishear words - check the new ' +
+                     'text carefully afterwards.')) return;
+        scene.text = applyHeardText(scene.text, analysis.ops);
+        ui.area.value = scene.text;
+        fitArea();
+        reverdict(scene);
+      }}, icon('refresh', 'sm'), 'Rewrite the scene to what was heard'));
+  }
+  if (actions.childElementCount) body.append(actions);
+  card.replaceChildren(head, body);
+  ui.words = [];
+  if (analysis) linkWords(scene, drawn);
+}
+
+// ---------------------------------------------------- words ↔ audio ---
+// Scene-time [start, end] of every heard token, in tokenStream(transcript)
+// order (what a diff op's `at` indexes), from the word timings cached with
+// each part's transcript. null when any part's timings are unknown, or when
+// the counts disagree: a wrong mapping would highlight the wrong words.
+async function heardTimings(scene) {
+  const offsets = clipOffsets(scene.clips), out = [];
+  for (const [k, clip] of scene.clips.entries()) {
+    const known = await heardOf(clip);
+    if (!known) return null;
+    for (const [text, start, end] of known.words)
+      for (let n = tokenStream(text).length; n > 0; n--)
+        out.push([offsets[k] + start / 1000, offsets[k] + end / 1000]);
+  }
+  return out.length === tokenStream(scene.transcript).length ? out : null;
+}
+// Heard words become clickable (play from there) and follow playback.
+async function linkWords(scene, drawn) {
+  const times = await heardTimings(scene);
+  if (!times || drawn !== ui.checkDrawn) return;   // the card was redrawn meanwhile
+  ui.words = [...ui.check.querySelectorAll('.diff [data-at]')].map(el => {
+    const [start, end] = times[+el.dataset.at];
+    el.classList.add('seekable');
+    el.title = 'Play from ' + preciseClock(start);
+    el.onclick = () => { scene.view.sel = null; playScene(scene, start, null); };
+    return {el, start, end};
+  });
+  const legend = ui.check.querySelector('.legend');
+  legend.insertBefore(h('span', {text: 'click a heard word to play from it'}), legend.querySelector('.toggle'));
+  highlightWord(scene);
+}
+function highlightWord(scene) {
+  const at = player.playing && player.scene === scene ? playheadNow() : null;
+  let now = null;
+  if (at != null) for (const w of ui.words) if (w.start <= at && at < w.end + 0.25) now = w;
+  if (now === ui.nowWord) return;
+  if (ui.nowWord) ui.nowWord.el.classList.remove('now');
+  if (now) now.el.classList.add('now');
+  ui.nowWord = now;
+}
+
+// --------------------------------------------------------------- audio card ---
+// The audio is a player docked to the bottom of the screen: one bar (record,
+// transport, edit tools, files) over the timeline, always in reach while the
+// line and its check scroll above it.
+function buildAudio(scene) {
+  ui.timelineFor = scene;
+  ui.canvas = null;
+  const tools = {};
+  const tb = (name, title, onclick) => (tools[name] = h('button',
+    {class: 'btn sm icon ghost', title, 'aria-label': title, onclick}, icon(name, 'sm')));
+  const sep = () => h('span', {class: 'tsep'});
+
+  ui.recBtn = h('button', {class: 'rec-btn', 'aria-label': 'Record (R)', onclick: () => toggleRecording(scene)},
+    h('span', {class: 'dot'}));
+  ui.recLabel = h('div', {class: 'rec-label'});
+  ui.meterLvl = h('div', {class: 'lvl'});
+  ui.meterPeak = h('div', {class: 'peak'});
+  ui.clipLed = h('span', {class: 'clip-led', text: 'CLIP'});
+  ui.meter = h('div', {class: 'meter'}, ui.meterLvl, ui.meterPeak);
+  const rec = h('div', {class: 'rec'}, ui.recBtn,
+    h('div', {class: 'rec-info'}, ui.recLabel, ui.recMeter = h('div', {class: 'rec-meter'}, ui.meter, ui.clipLed)));
+  const files = [
+    h('button', {class: 'btn sm', title: 'Add recording files (or drop them anywhere on the page)',
+                 onclick: () => pickAudio(scene)}, icon('upload', 'sm'), h('span', {class: 'label', text: 'Add files'})),
+    h('button', {class: 'btn sm icon ghost', title: 'Recording settings', 'aria-label': 'Recording settings',
+                 onclick: openSettings}, icon('gear', 'sm'))];
+
+  let bar, middle;
+  if (!scene.clips.length) {
+    ui.toolbar = ui.tools = null;
+    bar = h('div', {class: 'dock-bar'}, rec, h('span', {class: 'spacer'}), ...files);
+    middle = h('div', {class: 'tl-empty', text: 'No audio for this scene yet. Record a take (R), ' +
+                                                'or drop your recording files anywhere on this page.'});
+  } else {
+    ui.playBtn = tb('play', 'Play / pause (Space)', () => togglePlay(scene));
+    ui.time = h('span', {class: 'time'});
+    ui.info = h('span', {class: 'dock-info'});
+    ui.toolbar = bar = h('div', {class: 'dock-bar'}, rec, sep(),
+      ui.playBtn, ui.time, sep(),
+      tb('scissors', 'Split at the playhead, or around the selection (S)', () => splitHere(scene)),
+      tb('trash', 'Delete the selection, or the selected clip (Delete)', () => deleteSelection(scene)),
+      sep(),
+      tb('undo', 'Undo (Ctrl+Z)', () => undo(scene)),
+      tb('redo', 'Redo (Ctrl+Shift+Z)', () => redo(scene)),
+      sep(),
+      tb('zoomOut', 'Zoom out (−, or Ctrl + scroll)', () => zoomBy(scene, 1 / 1.6)),
+      tb('zoomIn', 'Zoom in (+, or Ctrl + scroll)', () => zoomBy(scene, 1.6)),
+      h('span', {class: 'spacer'}), ui.info, ...files);
+    ui.tools = tools;
+    ui.canvas = h('canvas', {class: 'tl-canvas', 'aria-label': 'Audio timeline',
+      title: 'Click to place the playhead, drag to select, drag a clip by its top bar to move it'});
+    // The spacer is as wide as the whole scene and scrolls; the canvas inside
+    // it is only as wide as the view and sticks to its left edge, so a long
+    // scene never needs a canvas wider than the screen.
+    ui.spacer = h('div', {class: 'tl-spacer'}, ui.canvas);
+    ui.scroll = h('div', {class: 'tl-scroll'}, ui.spacer);
+    ui.scroll.onscroll = () => redrawTimeline();
+    wireTimeline(scene);
+    middle = h('div', {class: 'tl-wrap'}, ui.scroll);
+  }
+
+  // The timeline sits in a fold, so the tab can slide it away and back.
+  // The scene list's tab rides on the player too: at the list's edge, just
+  // above the player, wherever the player's height and the list's fold put it.
+  ui.dock.replaceChildren(
+    foldTab(h('button', {class: 'fold-tab dock-tab'}), ui.dock, 'dock.folded', 'folded',
+            ['down', 'up'], ['Hide the waveform', 'Show the waveform']),
+    foldTab(h('button', {class: 'fold-tab rail-tab', id: 'railFold'}), $('workspace'), 'rail.folded',
+            'rail-folded', ['left', 'right'], ['Hide the scene list', 'Show the scene list']),
+    h('div', {class: 'dock-inner'}, bar, h('div', {class: 'dock-fold'}, h('div', {}, middle))));
+  requestAnimationFrame(() => { fitIfNeeded(scene, true); redrawTimeline(); });
+  drawRecorder();
+  updateTransport();
+  // Waveforms need decoded audio; decode this scene's sources in the background.
+  for (const c of scene.clips)
+    decodeSource(sources.get(c.src)).then(() => { if (current === scene) redrawTimeline(); }).catch(() => {});
+}
+
+// A fold tab: toggles `cls` on `target`, remembered under `pref`, so the
+// layout keeps the shape the narrator chose. `icons` and `titles` are
+// [when open, when folded].
+function foldTab(button, target, pref, cls, icons, titles) {
+  const paint = () => {
+    const folded = prefs.flag(pref, false);
+    target.classList.toggle(cls, folded);
+    button.replaceChildren(icon(icons[+folded], 'sm'));
+    button.title = titles[+folded];
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-expanded', String(!folded));
+  };
+  button.onclick = () => { prefs.set(pref, prefs.flag(pref, false) ? '0' : '1'); paint(); };
+  paint();
+  return button;
+}
+
+function pickAudio(scene) {
+  const picker = $('pickAudio');
+  picker.onchange = () => { addParts(scene, picker.files); picker.value = ''; };
+  picker.click();
+}
+
+function updateTransport() {
+  const scene = current;
+  if (!scene || !ui.toolbar || !ui.tools) return;
+  const playing = player.playing && player.scene === scene;
+  // Only when it flips: swapped every frame, the icon under the pointer was
+  // replaced between mousedown and mouseup and the click never happened.
+  if (ui.playBtn.dataset.playing !== String(playing)) {
+    ui.playBtn.dataset.playing = playing;
+    ui.playBtn.replaceChildren(icon(playing ? 'pause' : 'play', 'sm'));
+  }
+  highlightWord(scene);
+  const total = sceneLength(scene.clips);
+  const at = playing ? playheadNow() : scene.view.playhead;
+  ui.time.replaceChildren(h('b', {text: preciseClock(at)}), ' / ' + preciseClock(total));
+  const t = ui.tools;
+  const hit = locate(scene.clips, scene.view.playhead);
+  t.scissors.disabled = !scene.view.sel &&
+    (!hit || hit.within < MIN_CLIP || clipLen(scene.clips[hit.i]) - hit.within < MIN_CLIP);
+  t.trash.disabled = !scene.view.sel && !scene.view.clipSel;
+  t.undo.disabled = !scene.history.undo.length;
+  t.redo.disabled = !scene.history.redo.length;
+  const sel = scene.view.sel;
+  ui.info.textContent = sel
+    ? (sel[1] - sel[0]).toFixed(1) + ' s selected'
+    : scene.view.clipSel ? 'clip selected'
+    : scene.clips.length + ' clip' + (scene.clips.length === 1 ? '' : 's') + ' · ' + clock(total);
+}
+
+function togglePlay(scene) {
+  if (player.playing && player.scene === scene) {
+    scene.view.playhead = playheadNow();
+    stopPlayback();
+    redrawTimeline();
+    return;
+  }
+  const sel = scene.view.sel;
+  if (sel) playScene(scene, sel[0], sel[1], sel[0]);
+  else playScene(scene, scene.view.playhead, null);
+}
+
+// ----------------------------------------------------------------- timeline ---
+const RULER = 20, STRIP = 22, TL_HEIGHT = 120;   // matches .tl-canvas in the CSS
+// Each clip's colour and name. A file keeps one colour wherever its pieces
+// sit: attached files take the next blue shade, takes recorded here the next
+// green one, so two files side by side never blend. Pieces of one file are
+// numbered in timeline order ("Take 1 · 2"); keyed by NAME, so the pieces
+// of a reopened draft (separate files by then) still look like one take.
+function clipLooks(clips) {
+  const count = new Map(), seen = new Map(), shade = new Map(), next = {file: 0, take: 0};
+  for (const c of clips) {
+    const name = stem(sources.get(c.src).name);
+    count.set(name, (count.get(name) || 0) + 1);
+  }
+  return clips.map(c => {
+    const src = sources.get(c.src), name = stem(src.name), kind = src.recorded ? 'take' : 'file';
+    if (!shade.has(name)) shade.set(name, '--' + kind + '-' + (next[kind]++ % 3));
+    seen.set(name, (seen.get(name) || 0) + 1);
+    return {color: shade.get(name), label: name + (count.get(name) > 1 ? ' · ' + seen.get(name) : '')};
+  });
+}
+function fitPps(scene) {
+  const width = (ui.scroll && ui.scroll.clientWidth) || 800;
+  return Math.max(2, (width - 4) / Math.max(1, sceneLength(scene.clips)));
+}
+function fitIfNeeded(scene, force) {
+  if (!ui.scroll) return;
+  const fit = fitPps(scene);
+  if (force || scene.view.pxPerSec == null || scene.view.pxPerSec < fit || scene.view.fit)
+    { scene.view.pxPerSec = fit; scene.view.fit = true; }
+}
+function zoomBy(scene, factor, anchorX) {
+  if (!ui.scroll) return;
+  const fit = fitPps(scene);
+  const before = scene.view.pxPerSec || fit;
+  const x = anchorX == null ? ui.scroll.clientWidth / 2 : anchorX;
+  const t = (ui.scroll.scrollLeft + x) / before;
+  const after = Math.max(fit, Math.min(400, before * factor));
+  scene.view.pxPerSec = after;
+  scene.view.fit = after <= fit + 0.001;
+  ui.spacer.style.width = Math.max(ui.scroll.clientWidth, sceneLength(scene.clips) * after) + 'px';
+  ui.scroll.scrollLeft = Math.max(0, t * after - x);
+  redrawTimeline();
+}
+
+function redrawTimeline() {
+  const scene = current;
+  if (!scene || !ui.canvas || !scene.clips.length || ui.timelineFor !== scene) return;
+  const canvas = ui.canvas, scroll = ui.scroll;
+  const width = scroll.clientWidth || 800, height = TL_HEIGHT;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.style.width = width + 'px';
+  }
+  const pps = scene.view.pxPerSec || fitPps(scene);
+  const total = sceneLength(scene.clips);
+  ui.spacer.style.width = Math.max(width, total * pps) + 'px';
+  const x0 = scroll.scrollLeft;
+  const t2x = t => t * pps - x0;
+  const g = canvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, width, height);
+  const col = {
+    text: cssVar('--text'), text2: cssVar('--text-2'), text3: cssVar('--text-3'), line: cssVar('--line'),
+    sel: cssVar('--sel'), playhead: cssVar('--playhead'), panel2: cssVar('--panel-2'), accent: cssVar('--accent'),
+    rec: cssVar('--rec'),
+  };
+  g.font = '600 10.5px ' + cssVar('--mono');
+
+  // Ruler: a readable step for the current zoom.
+  const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+  const step = steps.find(s => s * pps >= 70) || 300;
+  g.fillStyle = col.panel2;
+  g.fillRect(0, 0, width, RULER);
+  g.fillStyle = col.text3;
+  g.strokeStyle = col.line;
+  g.lineWidth = 1;
+  for (let t = Math.floor(x0 / pps / step) * step; t <= (x0 + width) / pps; t += step) {
+    const x = Math.round(t2x(t)) + 0.5;
+    g.beginPath(); g.moveTo(x, RULER - 6); g.lineTo(x, RULER); g.stroke();
+    g.fillText(step < 1 ? t.toFixed(1) + 's' : clock(t), x + 3, 13);
+  }
+
+  // Clips: a top bar (drag handle + name) and the waveform.
+  const offsets = clipOffsets(scene.clips);
+  const looks = clipLooks(scene.clips);
+  const waveTop = RULER + STRIP, waveH = height - waveTop, mid = waveTop + waveH / 2;
+  scene.clips.forEach((c, i) => {
+    const src = sources.get(c.src);
+    const xs = t2x(offsets[i]), w = clipLen(c) * pps;
+    if (xs > width || xs + w < 0) return;
+    const hue = cssVar(looks[i].color);
+    const selected = scene.view.clipSel === c.id;
+    g.fillStyle = hue;
+    g.globalAlpha = 0.09;
+    g.fillRect(xs, RULER, w, height - RULER);
+    g.globalAlpha = selected ? 0.95 : 0.55;
+    g.fillRect(xs, RULER, w, STRIP);
+    g.globalAlpha = 1;
+    // name, clipped to the clip's width
+    g.save();
+    g.beginPath(); g.rect(xs + 6, RULER, Math.max(0, w - 12), STRIP); g.clip();
+    g.fillStyle = '#fff';
+    g.font = '600 11.5px ' + cssVar('--ui');
+    const label = looks[i].label + '  ' + clock(clipLen(c));
+    g.fillText(label, xs + 8, RULER + 15);
+    g.restore();
+    // waveform
+    if (src.peaks) {
+      const p = src.peaks;
+      g.fillStyle = hue;
+      const from = Math.max(0, Math.floor(xs)), to = Math.min(width, Math.ceil(xs + w));
+      for (let x = from; x < to; x++) {
+        const t0 = c.start + (x - xs) / pps, t1 = t0 + 1 / pps;
+        let b0 = Math.floor(t0 * p.rate), b1 = Math.max(b0 + 1, Math.ceil(t1 * p.rate));
+        b0 = Math.max(0, b0); b1 = Math.min(p.min.length, b1);
+        let lo = 0, hi = 0;
+        for (let b = b0; b < b1; b++) { if (p.min[b] < lo) lo = p.min[b]; if (p.max[b] > hi) hi = p.max[b]; }
+        const top = mid - hi * (waveH / 2 - 6), bottom = mid - lo * (waveH / 2 - 6);
+        g.fillRect(x, top, 1, Math.max(1, bottom - top));
+      }
+    } else {
+      g.fillStyle = col.text3;
+      g.fillRect(xs, mid, w, 1);
+      g.font = '500 11px ' + cssVar('--ui');
+      if (w > 120) g.fillText(src.undecodable ? 'no preview for this file' : 'loading waveform…', xs + 8, mid - 8);
+    }
+    // clip boundary
+    g.fillStyle = col.panel2;
+    g.fillRect(Math.round(xs + w) - 1, RULER, 2, height - RULER);
+    if (selected) {
+      g.strokeStyle = col.accent;
+      g.lineWidth = 2;
+      g.strokeRect(xs + 1, RULER + 1, w - 2, height - RULER - 2);
+    }
+  });
+
+  // Selection
+  const sel = scene.view.sel;
+  if (sel) {
+    const a = t2x(sel[0]), b = t2x(sel[1]);
+    g.fillStyle = col.sel;
+    g.fillRect(a, RULER, b - a, height - RULER);
+    g.fillStyle = col.accent;
+    g.fillRect(Math.round(a), RULER, 1.5, height - RULER);
+    g.fillRect(Math.round(b), RULER, 1.5, height - RULER);
+  }
+
+  // Drop marker while dragging a clip
+  const drag = ui.drag;
+  if (drag && drag.mode === 'move' && drag.moved && drag.target != null) {
+    const bounds = [...offsets, total];
+    const x = Math.round(t2x(bounds[drag.target]));
+    g.fillStyle = col.accent;
+    g.fillRect(x - 1.5, RULER, 3, height - RULER);
+    g.beginPath(); g.moveTo(x - 6, RULER); g.lineTo(x + 6, RULER); g.lineTo(x, RULER + 7); g.fill();
+  }
+
+  // Playhead
+  const at = player.playing && player.scene === scene ? playheadNow() : scene.view.playhead;
+  const px = Math.round(t2x(at)) + 0.5;
+  g.strokeStyle = col.playhead;
+  g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(px, RULER); g.lineTo(px, height); g.stroke();
+  g.fillStyle = col.playhead;
+  g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, 7); g.fill();
+}
+
+function wireTimeline(scene) {
+  const canvas = ui.canvas;
+  const at = event => {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    const pps = scene.view.pxPerSec || fitPps(scene);
+    const total = sceneLength(scene.clips);
+    return {x, y, t: Math.max(0, Math.min(total, (ui.scroll.scrollLeft + x) / pps))};
+  };
+  const nearestBoundary = t => {
+    const bounds = [...clipOffsets(scene.clips), sceneLength(scene.clips)];
+    let best = 0;
+    bounds.forEach((b, k) => { if (Math.abs(b - t) < Math.abs(bounds[best] - t)) best = k; });
+    return best;
+  };
+  canvas.onpointerdown = event => {
+    if (event.button !== 0) return;
+    const p = at(event);
+    canvas.setPointerCapture(event.pointerId);
+    if (p.y >= RULER && p.y < RULER + STRIP) {
+      const hit = locate(scene.clips, p.t);
+      if (!hit) return;
+      scene.view.clipSel = scene.clips[hit.i].id;
+      scene.view.sel = null;
+      ui.drag = {mode: 'move', from: hit.i, startX: p.x, moved: false, target: null};
+    } else {
+      ui.drag = {mode: 'select', anchor: p.t, startX: p.x};
+      scene.view.sel = null;
+      scene.view.clipSel = null;
+    }
+    updateTransport();
+    redrawTimeline();
+  };
+  canvas.onpointermove = event => {
+    const drag = ui.drag;
+    const p = at(event);
+    canvas.style.cursor = drag && drag.mode === 'move' ? 'grabbing'
+      : p.y >= RULER && p.y < RULER + STRIP ? 'grab' : 'text';
+    if (!drag) return;
+    if (drag.mode === 'select' && Math.abs(p.x - drag.startX) > 3) {
+      scene.view.sel = [Math.min(drag.anchor, p.t), Math.max(drag.anchor, p.t)];
+      updateTransport();
+      redrawTimeline();
+    } else if (drag.mode === 'move' && (drag.moved || Math.abs(p.x - drag.startX) > 4)) {
+      drag.moved = true;
+      drag.target = nearestBoundary(p.t);
+      redrawTimeline();
+    }
+  };
+  canvas.onpointerup = event => {
+    const drag = ui.drag;
+    ui.drag = null;
+    if (!drag) return;
+    const p = at(event);
+    if (drag.mode === 'select' && !scene.view.sel) {
+      // A click: move the playhead there (and keep playing from it).
+      const wasPlaying = player.playing && player.scene === scene;
+      scene.view.playhead = p.t;
+      if (wasPlaying) playScene(scene, p.t, null);
+    } else if (drag.mode === 'move') {
+      if (drag.moved && drag.target != null) {
+        const to = drag.target > drag.from ? drag.target - 1 : drag.target;
+        if (to !== drag.from) commit(scene, moveClip(scene.clips, drag.from, to));
+      } else {
+        scene.view.playhead = clipOffsets(scene.clips)[drag.from];
+      }
+    }
+    updateTransport();
+    redrawTimeline();
+  };
+  canvas.ondblclick = event => {
+    const p = at(event);
+    const hit = locate(scene.clips, p.t);
+    if (!hit) return;
+    const start = clipOffsets(scene.clips)[hit.i];
+    scene.view.sel = [start, start + clipLen(scene.clips[hit.i])];
+    updateTransport();
+    redrawTimeline();
+  };
+  canvas.onwheel = event => {
+    if (!(event.ctrlKey || event.metaKey)) return;   // plain scrolling stays native
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    zoomBy(scene, event.deltaY < 0 ? 1.25 : 1 / 1.25, event.clientX - rect.left);
+  };
+}
+
+// ----------------------------------------------------------------- recorder UI ---
+function toggleRecording(scene) {
+  if (recorder.phase === 'idle') startRecording(scene || current);
+  else stopRecording();
+}
+function drawRecorder() {
+  if (!ui.recBtn) return;
+  const here = recorder.scene === current;
+  const phase = here ? recorder.phase : 'idle';
+  const busyElsewhere = recorder.phase !== 'idle' && !here;
+  ui.recBtn.classList.toggle('live', phase === 'recording' || phase === 'countin');
+  ui.recBtn.disabled = busyElsewhere || phase === 'processing' || phase === 'arming';
+  const takes = current ? current.clips.filter(c => sources.get(c.src).recorded).length : 0;
+  const texts = {
+    idle: busyElsewhere ? ['Recording on another scene', 'Stop it there first (R).']
+      : [takes ? 'Record another take' : 'Record a take',
+         'Each take is added after the last clip. ' + (prefs.flag('rec.denoise', true) ? 'Noise removal on' : 'Noise removal off')
+         + ' · ' + (prefs.flag('rec.limiter', true) ? 'limiter on' : 'limiter off') + '.'],
+    arming: ['Starting the microphone…', 'Allow microphone access if the browser asks.'],
+    countin: ['Get ready…', 'Recording starts after the count.'],
+    recording: [null, 'Press R or the button to stop. Pauses between takes are fine.'],
+    processing: ['Cleaning up the take…', 'Noise removal and limiter, one moment.'],
+  }[phase];
+  ui.recLabel.replaceChildren(texts[0] != null ? texts[0]
+    : h('span', {}, h('span', {class: 'rec-clock', id: 'recClock', text: '0:00'}), ' Recording'));
+  ui.recBtn.title = ui.recLabel.title = (phase === 'recording' ? 'Stop (R). ' : 'Record (R). ') + texts[1];
+  ui.recMeter.classList.toggle('hidden', phase !== 'recording' && phase !== 'countin');
+  paintRailRow(recorder.scene || current);
+  if (current) paintRailRow(current);
+  updateProgress();
+}
+function drawMeter() {
+  if (!ui.meterLvl || recorder.scene !== current) return;
+  const pct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+  ui.meterLvl.style.width = pct(recorder.level) + '%';
+  ui.meterPeak.style.left = pct(recorder.peakHold) + '%';
+  ui.clipLed.classList.toggle('hot', performance.now() < recorder.clipUntil);
+  const clockEl = $('recClock');
+  if (clockEl && recorder.phase === 'recording')
+    clockEl.textContent = clock((performance.now() - recorder.startedAt) / 1000);
+}
+
+// ------------------------------------------------------------ settings UI ---
+function openSettings() {
+  $('settingsLayer').hidden = false;
+  refreshDevices();
+  setTimeout(() => $('key').focus(), 50);
+}
+const closeLayer = id => { $(id).hidden = true; };
+async function refreshDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+    const select = $('micSelect');
+    const chosen = prefs.get('rec.device', '');
+    select.replaceChildren(h('option', {value: '', text: 'System default'}),
+      ...devices.filter(d => d.deviceId && d.deviceId !== 'default').map(d =>
+        h('option', {value: d.deviceId, text: d.label || 'Microphone'})));
+    select.value = devices.some(d => d.deviceId === chosen) ? chosen : '';
+    const labelled = devices.some(d => d.label);
+    $('micHint').textContent = labelled ? 'The recorder uses this one.' :
+      'Allow the microphone once (press Record) to see names here.';
+  } catch (error) { /* enumerate can be blocked; the default device still works */ }
+}
+function setMicState(stateName, text) {
+  const el = $('micState');
+  el.className = 'state ' + stateName;
+  el.replaceChildren(icon(stateName === 'ok' ? 'check' : stateName === 'bad' ? 'x' : 'mic', 'sm'));
+  if (text) $('micSub').textContent = text;
+}
+function setKeyState() {
+  const has = $('key').value.trim() !== '';
+  const el = $('keyState');
+  el.className = 'state ' + (has ? 'ok' : '');
+  el.replaceChildren(icon(has ? 'check' : 'listen', 'sm'));
+  $('keyHelp').classList.toggle('hidden', has);
+}
+function syncKey(value) {
+  $('key').value = value;
+  $('keyLoad').value = value;
+  prefs.set('stt_key', value.trim());
+  setKeyState();
+}
+
+// ----------------------------------------------------------- shortcuts UI ---
+const SHORTCUTS = [
+  [['J'], ['↓'], 'Next scene'], [['K'], ['↑'], 'Previous scene'],
+  [['Space'], null, 'Play / pause (plays the selection when there is one)'],
+  [['R'], null, 'Record a take / stop'], [['C'], null, 'Check this scene'],
+  [['S'], null, 'Split at the playhead, or around the selection'],
+  [['Del'], null, 'Delete the selection, or the selected clip'],
+  [['Ctrl', 'Z'], null, 'Undo'], [['Ctrl', 'Shift', 'Z'], null, 'Redo'],
+  [['+'], ['−'], 'Zoom the timeline'], [['Home'], null, 'Playhead to the start'],
+  [['Esc'], null, 'Clear the selection / stop / close'], [['?'], null, 'This list'],
+];
+function openKeys() {
+  $('keysGrid').replaceChildren(...SHORTCUTS.flatMap(([keys, alt, what]) => [
+    h('div', {class: 'k'}, ...keys.map(k => h('kbd', {text: k})), ...(alt ? [' ', ...alt.map(k => h('kbd', {text: k}))] : [])),
+    h('div', {text: what})]));
+  $('keysLayer').hidden = false;
+}
+
+function onKey(event) {
+  const layerOpen = !$('settingsLayer').hidden || !$('keysLayer').hidden;
+  if (event.key === 'Escape') {
+    if (layerOpen) { closeLayer('settingsLayer'); closeLayer('keysLayer'); return; }
+    if (typing()) { document.activeElement.blur(); return; }
+    if (current) {
+      if (player.playing) stopPlayback();
+      current.view.sel = null; current.view.clipSel = null;
+      updateTransport(); redrawTimeline();
+    }
+    $('moreList').hidden = true;
+    return;
+  }
+  if (layerOpen || typing() || !job || !current) return;
+  const key = event.key, ctrl = event.ctrlKey || event.metaKey;
+  const scene = current;
+  if (ctrl && (key === 'z' || key === 'Z')) { event.preventDefault(); event.shiftKey ? redo(scene) : undo(scene); return; }
+  if (ctrl && (key === 'y' || key === 'Y')) { event.preventDefault(); redo(scene); return; }
+  if (ctrl || event.altKey) return;
+  switch (key) {
+    case 'j': case 'J': case 'ArrowDown': event.preventDefault(); showScene(neighbor(1)); break;
+    case 'k': case 'K': case 'ArrowUp': event.preventDefault(); showScene(neighbor(-1)); break;
+    case ' ':
+      event.preventDefault();
+      if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
+      if (scene.clips.length) togglePlay(scene);
+      break;
+    case 'r': case 'R': event.preventDefault(); toggleRecording(scene); break;
+    case 'c': case 'C': if (scene.clips.length) checkScene(scene); break;
+    case 's': case 'S': if (scene.clips.length) splitHere(scene); break;
+    case 'Delete': case 'Backspace': event.preventDefault(); deleteSelection(scene); break;
+    case '+': case '=': zoomBy(scene, 1.6); break;
+    case '-': case '_': zoomBy(scene, 1 / 1.6); break;
+    case 'Home': scene.view.playhead = 0; if (ui.scroll) ui.scroll.scrollLeft = 0; updateTransport(); redrawTimeline(); break;
+    case '?': openKeys(); break;
+  }
+}
+
+// ------------------------------------------------------------- load screen ---
+function loadAnyFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.json')) return loadJobFile(file);
+  if (name.endsWith('.zip')) return loadDraftFile(file);
+  return Promise.reject(new Error(
+    '"' + file.name + '" is neither a job (.json) nor a saved zip (.zip).'));
+}
+
+// ffmpeg is downloaded and smoke-tested BEFORE a job can be opened:
+// finding out it is broken halfway through a session — after a morning of
+// recordings are attached — is the expensive moment to find out.
+let toolBusy = true;
+function setFfState(stateName, text, fraction) {
+  const el = $('ffState');
+  el.className = 'state ' + stateName;
+  el.replaceChildren(stateName === 'busy' ? statusIcon('working')
+    : icon(stateName === 'ok' ? 'check' : 'x', 'sm'));
+  $('ffSub').textContent = text;
+  $('ffBarTrack').classList.toggle('hidden', fraction == null);
+  if (fraction != null) $('ffBar').style.width = Math.round(fraction * 100) + '%';
+}
+async function prepareFfmpeg() {
+  // Opened by double-clicking the .html: the page's origin is "null", and
+  // Chrome refuses to start a worker from a blob on an opaque origin — which
+  // is exactly how ffmpeg.wasm runs. IndexedDB is usually refused there too,
+  // so the auto-resume goes with it. Nothing to work around; say which part
+  // is missing and how to get it back.
+  if (location.protocol === 'file:') {
+    toolBusy = false;
+    ffmpegFailed = true;
+    setFfState('bad', 'Unavailable on a page opened from disk (file://).', null);
+    banner('This page was opened straight from disk (file://). Chrome blocks ' +
+           'the worker ffmpeg runs in, and usually the storage that resumes ' +
+           'your work, on pages opened that way. Use the published link, or ' +
+           'serve the folder locally (python3 -m http.server). Everything ' +
+           'else still works, but recordings keep their video track and ' +
+           'takes recorded here are kept without noise removal.');
+    return;
+  }
+  setFfState('busy', 'Preparing ffmpeg (one time, about 32 MB)…', 0);
+  $('dropAny').classList.add('waiting');
+  try {
+    const ffmpeg = await loadFfmpeg((received, total) => {
+      const fraction = Math.min(0.99, received / total);
+      setFfState('busy', 'Downloading ffmpeg: ' + Math.round(fraction * 100) + '% (' +
+        megabytes(received) + ' of ' + megabytes(total) + ', one time only)', fraction);
+    });
+    setFfState('busy', 'Testing ffmpeg…', 1);
+    await ffmpeg.exec(['-version']);   // it answers ⇒ the engine really runs
+    setFfState('ok', 'Ready. Recordings are shrunk to audio when you attach them, and takes recorded here are cleaned up.', null);
+  } catch (error) {
+    ffmpegFailed = true;
+    setFfState('bad', 'Unavailable: ' + (error.message || error), null);
+    banner('ffmpeg could not be prepared (' +
+           (error.message || error) + '). You can still work — recordings ' +
+           'then keep their video track, which makes every upload and zip ' +
+           'much heavier.');
+  } finally {
+    toolBusy = false;
+    $('dropAny').classList.remove('waiting');
+  }
+}
+
+// The whole PAGE is a drop target: before a job, for the job or a saved zip;
+// after, for recordings, which go to the scene on screen. A stray drop is
+// always swallowed so the browser never navigates away from the work.
+function wireDrops() {
+  const zone = $('dropAny');
+  const openFile = file => {
+    if (toolBusy) {
+      banner('Still preparing ffmpeg — one moment, then drop the file again.');
+      return;
+    }
+    if (file) loadAnyFile(file).catch(say);
+  };
+  zone.onclick = event => { if (event.target.tagName !== 'BUTTON') $('pickAny').click(); };
+  zone.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('pickAny').click(); } };
+  $('pickBtn').onclick = () => $('pickAny').click();
+  $('pickAny').onchange = () => { openFile($('pickAny').files[0]); $('pickAny').value = ''; };
+  let depth = 0;
+  document.addEventListener('dragenter', event => {
+    event.preventDefault();
+    depth++;
+    if (!job) zone.classList.add('over');
+    else if (ui.dock) ui.dock.classList.add('dropping');
+  });
+  document.addEventListener('dragover', event => event.preventDefault());
+  document.addEventListener('dragleave', () => {
+    if (--depth > 0) return;
+    zone.classList.remove('over');
+    if (ui.dock) ui.dock.classList.remove('dropping');
+  });
+  document.addEventListener('drop', event => {
+    event.preventDefault();
+    depth = 0;
+    zone.classList.remove('over');
+    if (ui.dock) ui.dock.classList.remove('dropping');
+    const files = [...event.dataTransfer.files];
+    if (!files.length) return;
+    if (!job) return openFile(files[0]);
+    const media = files.filter(f => MEDIA_EXT.includes(extOf(f.name)));
+    if (media.length) addParts(current, media).catch(say);
+    else banner('To open another job or zip, use More → New project first. Recordings dropped here go to the scene on screen.');
+  });
+}
+
+// ------------------------------------------------------- session resume ---
+async function resumeSession() {
+  if (job) return false;               // the user already loaded something
+  let meta = null;
+  try { meta = await idbGet('session', 'meta'); } catch (error) { return false; }
+  if (!meta || !meta.job || meta.ts < Date.now() - MAX_AGE_MS) return false;
+  if (meta.v !== SESSION_VERSION) {
+    // Saved by an earlier version of this page, in a shape this one does not
+    // read. Not converted: it is dropped, audio included.
+    // Nothing irreplaceable goes with it: the narrator's own files are on
+    // their disk, text edits live in the localStorage autosave (merged back
+    // when the job file is loaded) and checks in the transcript cache.
+    await sessionClear();
+    toast('Your last session was saved by an older version of this page and ' +
+          'could not be reopened. Open your last saved .zip, or load the job ' +
+          'file again and re-attach your recordings: your text edits and ' +
+          'checks come back by themselves.');
+    return false;
+  }
+  // Re-check after the await: a fast drop while the meta was being read
+  // must win over the resume, not be overwritten by it.
+  if (job) return false;
+  const missing = [];
+  for (const ref of meta.sources || []) {
+    let entry = null;
+    try { entry = await idbGet('session', 'part:' + ref.sha256); } catch (error) { /* evicted */ }
+    if (!entry || !entry.blob) { missing.push(ref.name); continue; }
+    sources.set(ref.sha256, {sha256: ref.sha256, blob: entry.blob, name: ref.name,
+                             recorded: !!ref.recorded, duration: ref.duration, peaks: null});
+  }
+  if (job) return false;
+  loadJobObject(meta.job, false);
+  for (let i = 0; i < state.length; i++) {
+    const saved = new Map((meta.scenes[i] || []).map(scene => [scene.index, scene]));
+    for (const scene of state[i]) {
+      const from = saved.get(scene.index);
+      if (!from) continue;
+      scene.text = from.text;
+      const clips = from.clips || [];
+      const lost = clips.some(c => !sources.has(c.src));
+      scene.clips = clips.filter(c => sources.has(c.src)).map(c => ({...c, id: newClipId()}));
+      scene.transcript = lost ? '' : (from.transcript || '');
+      scene.checked = !!from.checked && !lost;
+      const keep = !lost && VERDICTS.includes(from.status);
+      scene.status = !scene.clips.length ? 'missing' : keep ? from.status : 'unchecked';
+      scene.ratio = keep ? (from.ratio || 0) : 0;
+      await rehydrateVerdict(scene);
+      drawScene(scene);
+    }
+  }
+  showScene(firstOpenScene());
+  updateProgress();
+  if (missing.length) {
+    // The browser dropped stored audio (it evicts site data under disk
+    // pressure). Say it once, with the count, and point at the fix.
+    banner('The browser no longer has ' + missing.length + ' of the ' +
+           'recordings from your last session (' + missing.slice(0, 3).join(', ') +
+           (missing.length > 3 ? ', …' : '') + '). Record or attach those parts ' +
+           'again — and save a draft .zip when you stop working, that copy ' +
+           'lives on your disk and never expires.');
+  } else {
+    toast('Resumed your last session right where you stopped.');
+  }
+  return true;
+}
+
+// Unexported work = anything attached or reworded that only lives in this
+// browser. Losing it is the narrator's explicit choice, never a side effect.
+function hasUnexportedWork() {
+  return state.flat().some(scene =>
+    scene.clips.length || scene.text.trim() !== scene.original.trim());
+}
+async function newProject() {
+  if (hasUnexportedWork() &&
+      !confirm('The current project will be lost.\nIf you want to continue ' +
+               'it later, cancel and Save Draft first.\nStart a new project ' +
+               'and DISCARD the work kept in this browser?')) return;
+  try { localStorage.removeItem(autosaveKey()); } catch (error) {}
+  await sessionClear();
+  location.reload();   // the load screen, clean state, swept listeners
+}
+
+const closeRail = () => $('rail').classList.remove('open');
+const openDrive = () => window.open(job.drive_folder_url, '_blank', 'noopener');
+
+// ------------------------------------------------------------------ wiring ---
+function wire() {
+  $('brandLogo').replaceChildren(icon('mic'));
+  $('railToggle').replaceChildren(icon('menu'));
+  $('heroLogo').replaceChildren(icon('mic'));
+  $('dropIcon').replaceChildren(icon('upload'));
+  $('keysBtn').replaceChildren(icon('keyboard'));
+  $('settingsBtn').replaceChildren(icon('gear'));
+  $('moreBtn').replaceChildren(icon('more'));
+  $('settingsClose').replaceChildren(icon('x'));
+  $('keyShow').replaceChildren(icon('eye', 'sm'));
+  $('driveBtn').replaceChildren(icon('folder', 'sm'), 'Open the Drive folder');
+  $('newProjectBtn').replaceChildren(icon('plus', 'sm'), 'New project…');
+  $('prevBtn').replaceChildren(icon('left', 'sm'), h('span', {class: 'label', text: 'Previous'}), h('span', {class: 'kbd-hint', text: 'K'}));
+  $('nextBtn').replaceChildren(h('span', {class: 'label', text: 'Next'}), h('span', {class: 'kbd-hint', text: 'J'}), icon('right', 'sm'));
+  $('checkAllBtn').replaceChildren(icon('listen', 'sm'), h('span', {class: 'label', text: 'Check all'}));
+  $('saveDraftBtn').replaceChildren(icon('save', 'sm'), h('span', {class: 'label', text: 'Save draft'}));
+  $('exportBtn').replaceChildren(icon('send', 'sm'), h('span', {class: 'label', text: 'Export completed zip'}));
+
+  applyTheme(currentTheme());
+  $('themeBtn').onclick = () => applyTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
+  document.querySelectorAll('[data-theme-pick]').forEach(b => { b.onclick = () => applyTheme(b.dataset.themePick); });
+  applyReadSize(readSize());
+  $('readSize').oninput = () => applyReadSize(parseInt($('readSize').value, 10));
+
+  const key = prefs.get('stt_key', '');
+  syncKey(key);
+  $('key').oninput = () => syncKey($('key').value);
+  $('keyLoad').oninput = () => syncKey($('keyLoad').value);
+  $('keyShow').onclick = () => { $('key').type = $('key').type === 'password' ? 'text' : 'password'; };
+
+  for (const [id, pref, fallback] of [['optDenoise', 'rec.denoise', true], ['optLimiter', 'rec.limiter', true],
+                                      ['optCountIn', 'rec.countin', true], ['stripVideo', 'stripVideo', true]]) {
+    $(id).checked = prefs.flag(pref, fallback);
+    $(id).onchange = () => { prefs.set(pref, $(id).checked ? '1' : '0'); drawRecorder(); };
+  }
+  $('micSelect').onchange = () => prefs.set('rec.device', $('micSelect').value);
+
+  $('settingsBtn').onclick = openSettings;
+  $('keysBtn').onclick = openKeys;
+  document.querySelectorAll('[data-close]').forEach(el => {
+    el.onclick = () => { closeLayer('settingsLayer'); closeLayer('keysLayer'); };
+  });
+  $('moreBtn').onclick = event => { event.stopPropagation(); $('moreList').hidden = !$('moreList').hidden; };
+  document.addEventListener('click', () => { $('moreList').hidden = true; });
+  $('driveBtn').onclick = openDrive;
+  $('newProjectBtn').onclick = newProject;
+  $('railToggle').onclick = () => $('rail').classList.toggle('open');
+
+  $('prevBtn').onclick = () => showScene(neighbor(-1));
+  $('nextBtn').onclick = () => showScene(neighbor(1));
+  $('checkAllBtn').onclick = () => checkAll().catch(say);
+  $('shrinkBtn').onclick = () => shrinkAttachedVideos().catch(say);
+  $('saveDraftBtn').onclick = () => saveZip(true);
+  $('exportBtn').onclick = () => saveZip(false);
+
+  document.addEventListener('keydown', onKey);
+  // Whatever resizes the page column (the window, the scene list folding):
+  // the timeline canvas and the reading box follow it.
+  new ResizeObserver(() => { if (current) { fitIfNeeded(current); redrawTimeline(); fitArea(); } })
+    .observe($('focus'));
+
+  // Everything else is already in the browser's session store; a take being
+  // recorded is not, until Stop.
+  window.addEventListener('beforeunload', event => {
+    if (recorder.phase === 'recording') { event.preventDefault(); event.returnValue = ''; }
+  });
+  wireDrops();
+
+  // Microphone permission, when the browser can tell without asking.
+  setMicState('', null);
+  if (navigator.permissions && navigator.permissions.query)
+    navigator.permissions.query({name: 'microphone'}).then(status => {
+      const paint = () => status.state === 'granted' ? setMicState('ok', 'Allowed.')
+        : status.state === 'denied' ? setMicState('bad', 'Blocked for this site — allow it in the address bar to record here.')
+        : setMicState('', null);
+      paint();
+      status.onchange = paint;
+    }).catch(() => {});
+}
+
+window.onerror = (message) => banner('Unexpected error: ' + message);
+window.onunhandledrejection = event => say(event.reason);
+
+wire();
+// Stored audio is "best effort" by default: browsers evict a site's data
+// when the disk gets tight, which is exactly how a resumed session comes
+// back without its recordings. Asking for persistent storage opts out of
+// that eviction (granted silently for a site the user actually uses).
+if (navigator.storage && navigator.storage.persist)
+  navigator.storage.persist().catch(() => {});
+prepareFfmpeg();
+sweepStorage().then(() => resumeSession()).catch(() => {});
+</script>
+</body>
+</html>
