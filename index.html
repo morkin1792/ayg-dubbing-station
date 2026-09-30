@@ -359,6 +359,7 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
 .score { font: 800 44px/1 var(--ui); letter-spacing: -.03em; }
 .score small { font-size: 20px; font-weight: 700; }
 .score.ok { color: var(--ok); } .score.mismatch { color: var(--bad); } .score.override, .score.close { color: var(--warn); }
+.score.unchecked { color: var(--text-3); }
 .verdict .what { flex: 1; min-width: 220px; }
 .verdict .what b { display: block; font-size: 16px; }
 .verdict .what span { color: var(--text-2); font-size: 13.5px; }
@@ -374,14 +375,24 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
         border: 1px solid var(--line); font: 17px/1.9 var(--read); }
 .diff .del { color: var(--ok); background: var(--ok-soft); text-decoration: line-through; border-radius: 4px; padding: 1px 4px; }
 .diff .ins { color: var(--bad); background: var(--bad-soft); border-radius: 4px; padding: 1px 4px; font-weight: 700; }
+.diff .unknown { color: var(--text-3); background: var(--sunk); border-radius: 4px; padding: 1px 4px; }
+.diff .unknown.audio { color: var(--text-2); font: 700 13px/1 var(--ui); letter-spacing: .04em;
+                       padding: 3px 6px; white-space: nowrap; vertical-align: 2px; }
 .diff .seekable { cursor: pointer; border-radius: 4px; }
 .diff .seekable:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .diff .now { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+.diff .picked { background: color-mix(in srgb, var(--accent) 35%, transparent);
+                box-shadow: inset 0 -2px 0 var(--accent); border-radius: 4px; padding: 1px 3px; }
 .legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-2); flex-wrap: wrap; }
 .legend .del { color: var(--ok); text-decoration: line-through; } .legend .ins { color: var(--bad); font-weight: 700; }
+.legend .unknown { color: var(--text-3); }
 .legend .toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text); }
 .legend .toggle input { margin: 0; accent-color: var(--accent); }
 .stt-warn { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--bad); font-weight: 600; }
+.retake { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: var(--text-2); }
+.retake svg.i { color: var(--warn); }
+.retake .said { flex: 1; min-width: 200px; }
+.retake .said b { color: var(--text); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 .empty-check { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .empty-check .what { flex: 1; min-width: 220px; color: var(--text-2); }
@@ -552,6 +563,8 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
           <button class="btn icon" id="keyShow" type="button" title="Show or hide the key" aria-label="Show or hide the key"></button></div>
         <div class="sub" style="margin-top:8px;color:var(--text-2);font-size:12.5px">Stays in this browser only.
           <a id="keyHelp" href="https://www.assemblyai.com/dashboard/api-keys" target="_blank" rel="noopener">Get a free key</a></div>
+        <div class="set-row"><div class="lbl"><b>Cut retakes at once</b><span>A part the check finds read twice is cut with one click (Undo brings it back). Off: the click only selects it on the waveform.</span></div>
+          <label class="switch"><input type="checkbox" id="optCutRetakes"><span class="knob"></span></label></div>
       </div>
       <div class="set-group">
         <h4>Recording</h4>
@@ -872,16 +885,28 @@ function tokenStream(text) {
   return out;
 }
 
+// What was heard: a transcript, or (page only, never a verdict) a list of
+// parts where null is audio not transcribed yet. Such a part is ONE token
+// that matches nothing ('?' can never be in a word's canon), so the line's
+// words it probably covers land in its change block and read as unknown.
+function heardStream(heard) {
+  if (typeof heard === 'string') return tokenStream(heard);
+  return heard.flatMap(part => part === null ? [{display: '?', canon: '?', unknown: true}]
+                                             : tokenStream(part));
+}
+
 // ops: {kind: 'eq'|'del'|'ins', display, nScript, paired} — del carries the
 // script's wording, ins what was heard instead; a del in a change block with
 // no ins at all is UNPAIRED: text that was never heard, not reworded.
 // A change block also re-welds compounds: script "graybox" heard as
 // "gray box" (or the reverse) becomes an eq instead of a del + two ins.
 // Every op that shows a heard word also carries `at`, the index of that word
-// in tokenStream(transcript): the page uses it to tie the diff to the audio.
-// It is page-only; the desktop side has no use for it.
+// in heardStream(transcript): the page uses it to tie the diff to the audio.
+// It is page-only; the desktop side has no use for it. So is `unknown`: the
+// not-transcribed part itself, and the line's words in its change block
+// (the ones it probably covers). Heard words in that block stay heard words.
 function diffOps(text, transcript) {
-  const a = tokenStream(text), b = tokenStream(transcript);
+  const a = tokenStream(text), b = heardStream(transcript);
   b.forEach((tok, k) => { tok.at = k; });
   const rows = a.length, cols = b.length;
   const lcs = Array.from({length: rows + 1}, () => new Uint16Array(cols + 1));
@@ -918,10 +943,11 @@ function diffOps(text, transcript) {
       } else break;
     }
     const paired = inss.length > 0;
+    const unknown = inss.some(tok => tok.unknown);
     for (const tok of dels)
-      ops.push({kind: 'del', display: tok.display, nScript: 1, paired});
+      ops.push({kind: 'del', display: tok.display, nScript: 1, paired, unknown});
     for (const tok of inss)
-      ops.push({kind: 'ins', display: tok.display, nScript: 0, at: tok.at});
+      ops.push({kind: 'ins', display: tok.display, nScript: 0, at: tok.at, unknown: !!tok.unknown});
     block = null;
   };
   for (const {kind, tok, heard, at} of raw) {
@@ -955,11 +981,17 @@ function diffOps(text, transcript) {
 // Heard words that replace nothing: per change block (a run between
 // matches), the insertions beyond its deletions. A reworded word is a
 // deletion paired with an insertion and costs nothing extra; a retake left
-// in, or a take from another scene appended, is all extra.
+// in, or a take from another scene appended, is all extra. Nothing is known
+// yet about a block with audio still to transcribe: it counts no extra.
 function extraWords(ops) {
-  let extra = 0, dels = 0, inss = 0;
+  let extra = 0, dels = 0, inss = 0, unknown = false;
   for (const op of [...ops, {kind: 'eq'}]) {
-    if (op.kind === 'eq') { extra += Math.max(0, inss - dels); dels = inss = 0; }
+    if (op.kind === 'eq') {
+      if (!unknown) extra += Math.max(0, inss - dels);
+      dels = inss = 0;
+      unknown = false;
+    }
+    else if (op.unknown) unknown = true;
     else if (op.kind === 'del') dels++;
     else inss++;
   }
@@ -991,6 +1023,76 @@ function analyzeScene(text, transcript) {
   return {ops, ratio, ok: ratio >= STT_OK && chunksOk,
           missingChunk: total > 0 && unheard / total >= MISSING_CHUNK,
           extra, extraHeard: total > 0 && extra / total >= EXTRA_HEARD};
+}
+
+// Retakes: mid-take, the narrator says something wrong and, without
+// stopping, reads the last words again, maybe more than once. A retake is a
+// stretch of heard words [from, to) whose cut leaves fewer words beyond the
+// line AND a take closer to it. Repetition the LINE has is matched to it, so
+// cutting it only lowers the score: never a retake. Everything before the
+// last good attempt is cut, so that attempt plays whole, with no splice
+// inside it. Indices are into tokenStream(transcript), the diff's `at`,
+// sorted, never overlapping.
+//
+// Candidates: the heard word at `to` restarts the one at `from` (same word),
+// and the span or its repeat right after it holds an extra word. Best cut
+// wins (ties: the longer one, which keeps the whole last attempt), then its
+// end is pulled back while that scores better, for a retake that starts one
+// word earlier than the failed attempt did (it adds back a skipped word).
+// Greedy: best cut, re-score, again.
+const RETAKE_MAX = 30;   // heard words in one abandoned stretch, at most
+function findRetakes(text, transcript) {
+  let toks = tokenStream(transcript).map((tok, k) => ({...tok, k}));
+  const join = list => list.map(tok => tok.display).join(' ');
+  const cuts = [];
+  for (;;) {
+    const base = analyzeScene(text, join(toks));
+    if (!base.extra) break;   // nothing heard beyond the line: nothing to cut
+    const extraAt = new Set(base.ops.filter(op => op.kind === 'ins').map(op => op.at));
+    const score = (p, q) => {
+      const s = analyzeScene(text, join([...toks.slice(0, p), ...toks.slice(q)]));
+      return s.extra < base.extra && s.ratio > base.ratio ? s.ratio : null;
+    };
+    let best = null;
+    for (let p = 0; p < toks.length; p++) {
+      if (!toks[p].display) continue;   // a contraction's tail: never an edge
+      for (let q = p + 1; q < toks.length && q - p <= RETAKE_MAX; q++) {
+        if (!toks[q].display || toks[q].canon !== toks[p].canon) continue;
+        let extra = false;
+        for (let k = p; k < Math.min(toks.length, 2 * q - p) && !extra; k++) extra = extraAt.has(k);
+        if (!extra) continue;
+        const ratio = score(p, q);
+        if (ratio !== null && (!best || ratio > best.ratio || (ratio === best.ratio && q - p > best.q - best.p)))
+          best = {p, q, ratio};
+      }
+    }
+    if (!best) break;
+    for (let q = best.q - 1; q > best.p; q--) {
+      const ratio = toks[q].display ? score(best.p, q) : null;
+      if (ratio !== null && ratio > best.ratio) best = {...best, q, ratio};
+    }
+    cuts.push({from: toks[best.p].k, to: toks[best.q].k});
+    toks = [...toks.slice(0, best.p), ...toks.slice(best.q)];
+  }
+  // A later cut can span an earlier one (the tokens between were already
+  // gone): merged, they are exactly the tokens removed.
+  cuts.sort((x, y) => x.from - y.from);
+  const merged = [];
+  for (const cut of cuts) {
+    const last = merged[merged.length - 1];
+    if (last && cut.from <= last.to) last.to = Math.max(last.to, cut.to);
+    else merged.push({...cut});
+  }
+  return merged;
+}
+// Where a retake is cut on the scene's timeline, from the heard words'
+// [start, end] times: in the pause before each attempt, so neither the word
+// before it nor the kept attempt loses a sound. A failed start of the whole
+// take is cut from 0: the lead-in silence before it would be left as a
+// sliver of a clip.
+function retakeRange(times, {from, to}) {
+  const pause = k => k > 0 ? (times[k - 1][1] + times[k][0]) / 2 : 0;
+  return [pause(from), pause(to)];
 }
 
 // Rebuild the line as the heard wording while keeping the punctuation and
@@ -1370,21 +1472,40 @@ const RNNOISE_MODEL = 'https://cdn.jsdelivr.net/gh/richardpl/arnndn-models@0fda2
 // downloaded and handed over as a blob URL. That includes the library's own
 // worker chunk (`classWorkerURL`): left out, it tries to spawn the worker
 // from a path next to this page, which does not exist on the site.
-async function toBlobURL(url, type, onBytes) {
+// `edit`, when given, rewrites the downloaded text before it is handed over.
+async function toBlobURL(url, type, onBytes, edit) {
   const response = await fetch(url);
   if (!response.ok)
     throw new Error('could not download ' + url.split('/').pop());
-  if (!onBytes || !response.body)
-    return URL.createObjectURL(new Blob([await response.arrayBuffer()], {type}));
-  const reader = response.body.getReader();
   const chunks = [];
-  for (;;) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    onBytes(value.length);
+  if (!onBytes || !response.body) chunks.push(await response.arrayBuffer());
+  else {
+    const reader = response.body.getReader();
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      onBytes(value.length);
+    }
   }
-  return URL.createObjectURL(new Blob(chunks, {type}));
+  let blob = new Blob(chunks, {type});
+  if (edit) blob = new Blob([edit(await blob.text())], {type});
+  return URL.createObjectURL(blob);
+}
+
+// The pinned core's exec() never gives back the wasm stack a run used: ffmpeg
+// ends every run by throwing out of main(), which skips the code that pops the
+// stack pointer, so each job leaks a few hundred bytes of a small, fixed
+// stack. About 150 jobs into a session (every cut renders one, every take and
+// check can too) the stack runs over the memory next to it, and from then on
+// EVERY job dies with "RuntimeError: memory access out of bounds" until the
+// page is reloaded. Emscripten's own wrappers save and restore the stack
+// around a call that may throw; this makes exec() do the same.
+const EXEC_CALL = 'Module["_ffmpeg"](args.length,stringsToPtr(args))';
+function restoreStackAfterExec(core) {
+  if (core.split(EXEC_CALL).length !== 2)
+    throw new Error('ffmpeg-core.js is not the expected build');
+  return core.replace(EXEC_CALL, 'const sp=stackSave();try{' + EXEC_CALL + '}finally{stackRestore(sp)}');
 }
 
 let ffmpegPromise = null;
@@ -1399,7 +1520,8 @@ function loadFfmpeg(onProgress) {
       : null;
     const instance = new FFmpegWASM.FFmpeg();
     await instance.load({
-      coreURL: await toBlobURL(FFMPEG_CORE + '/ffmpeg-core.js', 'text/javascript', count),
+      coreURL: await toBlobURL(FFMPEG_CORE + '/ffmpeg-core.js', 'text/javascript', count,
+                               restoreStackAfterExec),
       wasmURL: await toBlobURL(FFMPEG_CORE + '/ffmpeg-core.wasm', 'application/wasm', count),
       classWorkerURL: await toBlobURL(FFMPEG_LIB + '/814.ffmpeg.js', 'text/javascript', count),
     });
@@ -1878,6 +2000,7 @@ function newState() {
     // from newState() and merges only text and audio back into it.
     ending: !!scene.ending,
     status: 'missing', ratio: 0, transcript: '', checked: false,
+    partial: null,   // heard parts, null where not transcribed yet (rehydrateVerdict)
     history: {undo: [], redo: []},
     view: {pxPerSec: null, playhead: 0, sel: null, clipSel: null},
   })));
@@ -2015,13 +2138,26 @@ async function heardOf(clip) {
 // is what puts the result box back on screen when a draft is reopened, what
 // makes re-attaching, reordering, splitting or cutting known audio keep its
 // verdict, and what brings a verdict back after an Undo.
+// With only SOME clips heard (a take was just added), the heard ones still
+// show: `partial` keeps them next to a `?` per new clip. Display only, never
+// a verdict; the scene stays unchecked until a Check hears the new audio.
 async function rehydrateVerdict(scene) {
   if (scene.transcript || !scene.clips.length) return false;
-  const heard = [];
-  for (const clip of scene.clips) {
+  const clips = scene.clips, heard = [];
+  for (const clip of clips) {
     const known = await heardOf(clip);
-    if (known === undefined) return false;    // partial: leave it unchecked
-    heard.push(known.text);
+    heard.push(known === undefined ? null : known.text);
+  }
+  // Edited again while the cache was read (Undo held down): these words
+  // belong to an arrangement that is gone; the newer edit's own rehydrate
+  // answers for the clips on screen.
+  if (scene.clips !== clips) return false;
+  if (heard.includes(null)) {
+    if (heard.some(part => part !== null)) {
+      scene.partial = heard;
+      drawScene(scene);
+    }
+    return false;
   }
   scene.transcript = heard.join(' ').trim();
   scene.checked = true;
@@ -2058,6 +2194,7 @@ function invalidate(scene) {
   abandon(scene);
   scene.status = scene.clips.length ? 'unchecked' : 'missing';
   scene.transcript = '';
+  scene.partial = null;
   scene.ratio = 0;
   scene.checked = false;
   drawScene(scene);
@@ -2071,7 +2208,9 @@ function invalidate(scene) {
 //
 // A history step remembers the verdict next to the clips, so Undo also gives
 // back a "Kept as written" (a decision no cache can re-derive), as long as
-// the line still reads as it did when that verdict was given.
+// the line still reads as it did when that verdict was given. A step with no
+// verdict (unchecked, or a check still running) is re-derived instead, which
+// is what brings back a partial analysis around a clip not checked yet.
 const snapshot = scene => ({clips: scene.clips, text: scene.text, verdict: {status: scene.status,
   ratio: scene.ratio, transcript: scene.transcript, checked: scene.checked}});
 async function commit(scene, clips) {
@@ -2085,7 +2224,7 @@ function step(scene, from, to) {
   if (!from.length) return;
   to.push(snapshot(scene));
   const back = from.pop();
-  const keep = back.text === scene.text && back.verdict.status !== 'working';
+  const keep = back.text === scene.text && VERDICTS.includes(back.verdict.status);
   setClips(scene, back.clips, keep ? back.verdict : null);
 }
 const undo = scene => step(scene, scene.history.undo, scene.history.redo);
@@ -2098,7 +2237,7 @@ async function setClips(scene, clips, verdict) {
   scene.view.playhead = Math.min(scene.view.playhead, sceneLength(clips));
   if (verdict) {
     abandon(scene);
-    Object.assign(scene, verdict);
+    Object.assign(scene, verdict, {partial: null});
     drawScene(scene);
     autosave();
     updateProgress();
@@ -2273,6 +2412,7 @@ async function checkScene(scene) {
     }
     if (scene.run !== run) return;
     scene.transcript = heard.join(' ').trim();
+    scene.partial = null;
     scene.checked = true;   // a live check backs this verdict (vs a restored one)
     const score = analyzeScene(text, scene.transcript);
     scene.ratio = score.ratio;
@@ -2653,7 +2793,7 @@ function buildFocus(scene) {
     : 'scene ' + (scene.index + 1) + ' of ' + list.filter(s => !s.ending).length;
 
   ui.words = [];
-  ui.nowWord = null;
+  ui.nowWords = [];
   // Reading
   ui.area = h('textarea', {spellcheck: 'false', 'aria-label': 'The line to read for ' + cardLabel(scene),
                            placeholder: 'This line is empty. Type what should be read here.'});
@@ -2748,6 +2888,8 @@ function drawScene(scene) {
 }
 
 // ------------------------------------------------------------- check card ---
+// What a clip not transcribed yet reads as in a partial diff.
+const UNCHECKED_AUDIO = '[AUDIO NOT CHECKED]';
 function drawCheck(scene) {
   // Every redraw counts, with or without a diff: a linkWords still waiting
   // from an earlier draw (or another scene) must see the card has moved on.
@@ -2762,28 +2904,38 @@ function drawCheck(scene) {
     h('span', {class: 'kbd-hint', text: 'C'}));
   head.append(checkBtn);
 
+  const working = scene.status === 'working';
   const shown = VERDICTS.includes(scene.status);
+  // Parts already heard next to new audio: shown, but never scored.
+  const partial = !shown && !scene.transcript && scene.partial;
+  // The words on the card: the verdict's transcript, or a partial. A running
+  // check keeps whichever was there when it started, under "Listening…".
+  const heard = (shown || working) && scene.transcript || partial;
   const pct = Math.round(scene.ratio * 100);
-  let analysis = null;
-  if (scene.status === 'working') {
+  const analysis = heard ? analyzeScene(scene.text, heard) : null;
+  if (working) {
     body.append(h('div', {class: 'empty-check'}, statusIcon('working'),
       h('div', {class: 'what'}, h('b', {text: 'Listening…'}),
         'Transcribing each part and comparing it with the line. Parts already checked come from the cache.')));
-  } else if (!shown) {
+  } else if (!shown && !partial) {
     body.append(h('div', {class: 'empty-check'},
       h('div', {class: 'what'},
         h('b', {text: scene.clips.length ? 'Not checked yet' : 'No audio yet'}),
         scene.clips.length
           ? 'The check transcribes this audio and compares it with the line, to catch a wrong, swapped or missing take. Rewording is fine; it is tolerant on purpose.'
           : 'Record a take or drop your recording below, then check it here.')));
-  } else if (!scene.transcript) {
+  } else if (!partial && !scene.transcript) {
     body.append(h('div', {class: 'empty-check'}, h('div', {class: 'what'},
       h('b', {text: scene.checked ? 'Nothing was heard in this audio.' : 'Restored from your saved work.'}),
       scene.checked
         ? 'The speech check returned no words at all. Either the take is silent, or it is music or tone only. Play it back before keeping it.'
         : 'Run Check again to see the similarity and the word-by-word comparison.')));
+  } else if (partial) {
+    body.append(h('div', {class: 'verdict'}, h('div', {class: 'score unchecked', text: '?'}),
+      h('div', {class: 'what'}, h('b', {text: 'New audio, not checked yet'}),
+        h('span', {text: 'The parts already checked keep their words; each ' + UNCHECKED_AUDIO +
+          ' is new audio. Check hears only the new parts, the rest comes from the cache.'}))));
   } else {
-    analysis = analyzeScene(scene.text, scene.transcript);
     const low = scene.ratio < SIMILAR_ENOUGH;
     const tone = {ok: 'var(--ok)', close: 'var(--warn)', override: 'var(--warn)'}[scene.status] || 'var(--bad)';
     body.append(
@@ -2804,13 +2956,37 @@ function drawCheck(scene) {
       h('div', {class: 'gauge-labels'},
         h('span', {style: 'left:' + (STT_OK * 100) + '%', text: 'pass ' + Math.round(STT_OK * 100) + '%'}),
         h('span', {style: 'left:' + (SIMILAR_ENOUGH * 100) + '%', text: Math.round(SIMILAR_ENOUGH * 100) + '%'})));
+  }
+  if (analysis) {
     if (analysis.missingChunk)
       body.append(h('div', {class: 'stt-warn'}, icon('warn', 'sm'),
         'A stretch of the line was never heard at all — maybe a part is missing?'));
+    const retakes = partial ? [] : findRetakes(scene.text, scene.transcript);
+    // With retakes found, the red words are not a cut list: the diff matches
+    // the FIRST copy of a repeated stretch to the line, so the red copy is
+    // often the good, last attempt the retake rows keep.
     if (analysis.extraHeard)
       body.append(h('div', {class: 'stt-warn'}, icon('warn', 'sm'),
-        analysis.extra + ' words were heard that are not in the line: a retake left in, or a ' +
-        'part from another scene? They are the red words; click one to hear it, then cut it.'));
+        analysis.extra + ' words were heard that are not in the line' + (retakes.length
+          ? ', most likely the retakes below. Cut them there: that keeps your last attempt.'
+          : ': a retake left in, or a part from another scene? They are the red words; click ' +
+            'one to hear it, then cut it.')));
+    if (retakes.length) {
+      const toks = tokenStream(scene.transcript);
+      const cutNow = prefs.flag('check.cutRetakes', true);
+      for (const cut of retakes)
+        body.append(h('div', {class: 'retake'}, icon('warn', 'sm'),
+          h('span', {class: 'said'}, 'Retake? Failed part: ',
+            h('b', {text: toks.slice(cut.from, cut.to).map(t => t.display).filter(Boolean).join(' ')})),
+          h('button', {class: 'btn sm', onclick: () => onRetake(scene, [cut], 'play')},
+            icon('play', 'sm'), 'Play'),
+          h('button', {class: 'btn sm', onclick: () => onRetake(scene, [cut], cutNow ? 'cut' : 'select')},
+            icon('scissors', 'sm'), cutNow ? 'Cut it' : 'Select it')));
+      if (cutNow && retakes.length > 1)
+        body.append(h('div', {class: 'retake'}, h('span', {class: 'said'}),
+          h('button', {class: 'btn sm', onclick: () => onRetake(scene, retakes, 'cut')},
+            icon('scissors', 'sm'), 'Cut all ' + retakes.length)));
+    }
     // Off, the diff reads as the transcript alone: what was heard, the words
     // heard INSTEAD of the line still in red, the line's own words hidden.
     const showWritten = prefs.flag('check.written', true);
@@ -2819,10 +2995,13 @@ function drawCheck(scene) {
       if (!op.display || (!showWritten && op.kind === 'del')) continue;
       // A phantom carries a HEARD word (the matched tail of a contraction
       // whose head was reworded away), so it reads as one.
-      const cls = op.phantom ? 'ins' : op.kind !== 'eq' ? op.kind : null;
-      diff.append(h('span', {class: cls, text: op.display, 'data-at': op.at}), ' ');
+      const cls = op.unknown ? 'unknown' : op.phantom ? 'ins' : op.kind !== 'eq' ? op.kind : null;
+      const audio = op.unknown && op.kind === 'ins';   // the not-transcribed part itself
+      diff.append(h('span', {class: audio ? 'unknown audio' : cls, text: audio ? UNCHECKED_AUDIO : op.display,
+                             'data-at': op.at}), ' ');
     }
     body.append(diff, h('div', {class: 'legend'},
+      partial ? h('span', {}, h('span', {class: 'unknown', text: 'grey'}), ' words the new audio may cover') : null,
       showWritten ? h('span', {}, h('span', {class: 'del', text: 'written'}), ' in the line but not heard') : null,
       h('span', {}, h('span', {class: 'ins', text: 'heard'}), ' instead'),
       h('span', {text: 'punctuation and accents ignored'}),
@@ -2847,7 +3026,7 @@ function drawCheck(scene) {
         updateProgress();
       }}, icon('check', 'sm'), "Keep the scene's text"));
   }
-  if (analysis && analysis.ops.some(op => op.kind !== 'eq')) {
+  if (analysis && !partial && analysis.ops.some(op => op.kind !== 'eq')) {
     actions.append(h('button', {class: 'btn', title: 'Replace the written words with the detected ones',
       onclick: () => {
         if (!confirm('This rewrites the scene to what the speech check ' +
@@ -2862,28 +3041,31 @@ function drawCheck(scene) {
   if (actions.childElementCount) body.append(actions);
   card.replaceChildren(head, body);
   ui.words = [];
-  if (analysis) linkWords(scene, drawn);
+  if (analysis) linkWords(scene, drawn, heard);
 }
 
 // ---------------------------------------------------- words ↔ audio ---
-// Scene-time [start, end] of every heard token, in tokenStream(transcript)
-// order (what a diff op's `at` indexes), from the word timings cached with
-// each part's transcript. null when any part's timings are unknown, or when
-// the counts disagree: a wrong mapping would highlight the wrong words.
-async function heardTimings(scene) {
+// Scene-time [start, end] of every heard token, in heardStream(heard) order
+// (what a diff op's `at` indexes), from the word timings cached with each
+// part's transcript; the `?` of a part not heard yet spans that whole clip.
+// null when a transcript's timings are unknown, or when the counts disagree:
+// a wrong mapping would highlight the wrong words.
+async function heardTimings(scene, heard) {
   const offsets = clipOffsets(scene.clips), out = [];
   for (const [k, clip] of scene.clips.entries()) {
     const known = await heardOf(clip);
-    if (!known) return null;
-    for (const [text, start, end] of known.words)
-      for (let n = tokenStream(text).length; n > 0; n--)
-        out.push([offsets[k] + start / 1000, offsets[k] + end / 1000]);
+    if (known) {
+      for (const [text, start, end] of known.words)
+        for (let n = tokenStream(text).length; n > 0; n--)
+          out.push([offsets[k] + start / 1000, offsets[k] + end / 1000]);
+    } else if (Array.isArray(heard)) out.push([offsets[k], offsets[k] + clipLen(clip)]);
+    else return null;
   }
-  return out.length === tokenStream(scene.transcript).length ? out : null;
+  return out.length === heardStream(heard).length ? out : null;
 }
 // Heard words become clickable (play from there) and follow playback.
-async function linkWords(scene, drawn) {
-  const times = await heardTimings(scene);
+async function linkWords(scene, drawn, heard) {
+  const times = await heardTimings(scene, heard);
   if (!times || drawn !== ui.checkDrawn) return;   // the card was redrawn meanwhile
   ui.words = [...ui.check.querySelectorAll('.diff [data-at]')].map(el => {
     const [start, end] = times[+el.dataset.at];
@@ -2896,14 +3078,63 @@ async function linkWords(scene, drawn) {
   legend.insertBefore(h('span', {text: 'click a heard word to play from it'}), legend.querySelector('.toggle'));
   highlightWord(scene);
 }
+// Retakes the check found, as stretches of the timeline: played or only
+// selected (one), or cut at once (one, or all of them as ONE undo step).
+// Select is what "Cut retakes at once" turned off in Settings leaves.
+async function onRetake(scene, cuts, action) {
+  const times = await heardTimings(scene, scene.transcript);
+  if (!times) {
+    banner('Could not tie this take\'s words to its audio. Find the retake on the waveform ' +
+           'and cut it by hand.');
+    return;
+  }
+  const ranges = cuts.map(cut => retakeRange(times, cut));
+  const [a, b] = ranges[0];
+  if (action === 'play') { scene.view.sel = null; playScene(scene, a, b); return; }
+  scene.view.clipSel = null;   // or the card would keep a whole clip's words lit
+  if (action === 'select') {
+    scene.view.sel = [a, b];
+    scene.view.playhead = a;
+    redrawTimeline();
+    updateTransport();
+    toast('The retake is selected on the waveform: press Delete to cut it.');
+    return;
+  }
+  if (!canEdit()) return;
+  // The last stretch first, so each earlier one's scene times still hold.
+  scene.view.playhead = a;
+  commit(scene, ranges.reverse().reduce((clips, [x, y]) => cutRange(clips, x, y), scene.clips));
+}
+// The words the card outlines. While playing, the word under the playhead
+// (the word just said lingers a moment into the pause). Otherwise: every
+// word of a selected clip (a word straddling a cut belongs to the side
+// holding its midpoint, as in heardOf), else the first word of a selected
+// stretch, else the word where a click on the waveform left the playhead;
+// in a pause, that is the word that plays next.
 function highlightWord(scene) {
-  const at = player.playing && player.scene === scene ? playheadNow() : null;
-  let now = null;
-  if (at != null) for (const w of ui.words) if (w.start <= at && at < w.end + 0.25) now = w;
-  if (now === ui.nowWord) return;
-  if (ui.nowWord) ui.nowWord.el.classList.remove('now');
-  if (now) now.el.classList.add('now');
-  ui.nowWord = now;
+  const playing = player.playing && player.scene === scene;
+  const i = playing ? -1 : scene.clips.findIndex(c => c.id === scene.view.clipSel);
+  // A clip's words are tinted and underlined in the accent colour, keeping
+  // the diff's own colours (a red extra word stays red); one word is outlined.
+  const cls = i >= 0 ? 'picked' : 'now';
+  let now;
+  if (i >= 0) {
+    const from = clipOffsets(scene.clips)[i], to = from + clipLen(scene.clips[i]);
+    now = ui.words.filter(w => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  } else {
+    const at = playing ? playheadNow() : scene.view.sel ? scene.view.sel[0] : scene.view.playhead;
+    const linger = playing ? 0.25 : 0;
+    let word = null;
+    for (const w of ui.words) if (w.start <= at && at < w.end + linger) word = w;
+    if (!word && !playing) word = ui.words.find(w => w.start > at) || null;
+    now = word ? [word] : [];
+  }
+  if (cls === ui.nowCls && now.length === ui.nowWords.length &&
+      now.every((w, k) => w === ui.nowWords[k])) return;
+  for (const w of ui.nowWords) w.el.classList.remove('now', 'picked');
+  for (const w of now) w.el.classList.add(cls);
+  ui.nowWords = now;
+  ui.nowCls = cls;
 }
 
 // --------------------------------------------------------------- audio card ---
@@ -3292,6 +3523,7 @@ function wireTimeline(scene) {
     if (!hit) return;
     const start = clipOffsets(scene.clips)[hit.i];
     scene.view.sel = [start, start + clipLen(scene.clips[hit.i])];
+    scene.view.clipSel = scene.clips[hit.i].id;   // the whole clip: its words light up
     updateTransport();
     redrawTimeline();
   };
@@ -3667,9 +3899,14 @@ function wire() {
   $('keyShow').onclick = () => { $('key').type = $('key').type === 'password' ? 'text' : 'password'; };
 
   for (const [id, pref, fallback] of [['optDenoise', 'rec.denoise', true], ['optLimiter', 'rec.limiter', true],
-                                      ['optCountIn', 'rec.countin', true], ['stripVideo', 'stripVideo', true]]) {
+                                      ['optCountIn', 'rec.countin', true], ['stripVideo', 'stripVideo', true],
+                                      ['optCutRetakes', 'check.cutRetakes', true]]) {
     $(id).checked = prefs.flag(pref, fallback);
-    $(id).onchange = () => { prefs.set(pref, $(id).checked ? '1' : '0'); drawRecorder(); };
+    $(id).onchange = () => {
+      prefs.set(pref, $(id).checked ? '1' : '0');
+      drawRecorder();
+      if (current) drawCheck(current);
+    };
   }
   $('micSelect').onchange = () => prefs.set('rec.device', $('micSelect').value);
 
