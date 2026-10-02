@@ -437,6 +437,33 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
               box-shadow: var(--shadow-lg); padding: 22px 24px; animation: rise .18s ease; position: relative; z-index: 51; }
 .modal-card h2 { margin: 0 0 14px; font-size: 18px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 18px; align-items: center; font-size: 14px; }
+/* Video takes: the mode switch, the camera setup and the floating preview */
+.mode-seg button { padding: 0 12px; }
+.top-actions .mode-seg button { height: 28px; font-size: 12.5px; }
+.cam-card { width: min(1100px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
+.cam-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .cam-grid { grid-template-columns: 1fr; } }
+.cam-stage { position: relative; background: #000; border-radius: var(--radius-sm); overflow: hidden; }
+.cam-stage canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: move; }
+.cam-stage.picking canvas { cursor: crosshair; }
+.cam-result { display: block; max-width: 100%; border-radius: var(--radius-sm); background: var(--sunk); margin-top: 6px; }
+.cam-side .set-row { padding: 6px 0; }
+.cam-side .seg { margin-bottom: 6px; }
+.key-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.key-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 6px; border-radius: 99px;
+            border: 1px solid var(--line-2); font: 600 12px/1 var(--mono); }
+.key-chip i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
+.key-chip button { border: 0; background: none; cursor: pointer; color: var(--text-3); padding: 2px; display: grid; }
+.cam-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.cam-note { color: var(--text-2); font-size: 12.5px; margin: 6px 0 0; }
+.cam-float { position: fixed; z-index: 30; width: 220px; border-radius: 12px; overflow: hidden; background: #000;
+             box-shadow: var(--shadow-lg); border: 1px solid var(--line-2); cursor: grab; touch-action: none; user-select: none; }
+.cam-float canvas { display: block; width: 100%; height: auto; }
+.cam-float .cam-tag { position: absolute; left: 8px; top: 7px; font: 700 11px/1 var(--ui); color: #fff;
+                      background: rgba(0,0,0,.5); padding: 4px 6px; border-radius: 6px; pointer-events: none; }
+.cam-float .cam-fold { position: absolute; top: 3px; right: 3px; color: #fff; }
+.cam-float.folded { width: auto; min-width: 120px; height: 34px; }
+.cam-float.folded canvas { display: none; }
 .keys .k { display: flex; gap: 4px; justify-content: flex-end; }
 
 /* Responsive: the rail becomes a slide-over under 900px. */
@@ -475,6 +502,10 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
       <svg viewBox="0 0 38 38"><circle class="track" cx="19" cy="19" r="15"/><circle class="fill" id="ringFill" cx="19" cy="19" r="15" stroke-dasharray="94.25" stroke-dashoffset="94.25"/></svg>
       <span id="ringText"></span>
     </div>
+    <div class="seg mode-seg hidden" id="modeTop" data-mode-seg role="radiogroup" aria-label="Recording mode">
+      <button type="button" data-mode="audio" role="radio">Audio only</button>
+      <button type="button" data-mode="video" role="radio">Video</button>
+    </div>
     <button class="btn ghost icon" id="themeBtn"></button>
     <button class="btn ghost icon" id="keysBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"></button>
     <button class="btn ghost icon" id="settingsBtn" title="Settings" aria-label="Settings"></button>
@@ -508,6 +539,17 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
     </div>
     <div class="setup">
       <h3>Before you start</h3>
+      <div class="setup-row">
+        <div class="state" id="modeState"></div>
+        <div class="body">
+          <div class="title">Recording</div>
+          <div class="sub">Audio only, or video with your camera as the face-cam. You can switch later.</div>
+        </div>
+        <div class="seg mode-seg" data-mode-seg role="radiogroup" aria-label="Recording mode">
+          <button type="button" data-mode="audio" role="radio">Audio only</button>
+          <button type="button" data-mode="video" role="radio">Video</button>
+        </div>
+      </div>
       <div class="setup-row">
         <div class="state busy" id="ffState"></div>
         <div class="body">
@@ -578,9 +620,9 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
           <label class="switch"><input type="checkbox" id="optCountIn"><span class="knob"></span></label></div>
       </div>
       <div class="set-group">
-        <h4>Attached files</h4>
-        <div class="set-row"><div class="lbl"><b>Audio only</b><span>Strip the dead video track from .mp4 recordings: about 10× smaller uploads and zips</span></div>
-          <label class="switch"><input type="checkbox" id="stripVideo"><span class="knob"></span></label></div>
+        <h4>Camera</h4>
+        <div class="set-row"><div class="lbl"><b>Camera setup</b><span id="cameraHint">Camera, quality, framing and background for video takes.</span></div>
+          <button class="btn sm" id="cameraBtn" type="button">Open</button></div>
       </div>
       <div class="set-group">
         <h4>Reading</h4>
@@ -608,6 +650,54 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
       <p style="margin:18px 0 0;color:var(--text-3);font-size:12.5px">Shortcuts pause while you are typing in the text.</p>
     </div>
   </div>
+</div>
+
+<div id="cameraLayer" hidden>
+  <div class="modal">
+    <div class="scrim" id="camScrim"></div>
+    <div class="modal-card cam-card" role="dialog" aria-modal="true" aria-labelledby="camTitle">
+      <h2 id="camTitle">Camera setup</h2>
+      <div class="cam-grid">
+        <div>
+          <div class="cam-stage" id="camStage"><canvas id="camCanvas" width="960" height="540"></canvas></div>
+          <p class="cam-note" id="camStageNote">Drag the frame to move it, a corner to resize it. Only what is inside the frame is used.</p>
+        </div>
+        <div class="cam-side">
+          <div class="set-row"><div class="lbl"><b>Camera</b></div></div>
+          <select class="input" id="camSelect" style="width:100%"></select>
+          <div class="set-row"><div class="lbl"><b>Quality</b><span>The most a recording uses</span></div>
+            <select class="input" id="camQuality"><option value="1080">1080p</option><option value="720">720p</option></select></div>
+          <div class="set-row"><div class="lbl"><b>Background</b></div></div>
+          <div class="seg" id="camBg" role="radiogroup" aria-label="Background">
+            <button type="button" data-bg="none" role="radio">None</button>
+            <button type="button" data-bg="green" role="radio">Green screen</button>
+            <button type="button" data-bg="ai" role="radio">AI cut-out</button>
+          </div>
+          <div id="camGreen" hidden>
+            <div class="key-chips" id="camKeys"></div>
+            <button class="btn sm" id="camPick" type="button"></button>
+            <div class="set-row"><div class="lbl"><b>Tolerance</b><span id="camTolLabel"></span></div></div>
+            <input type="range" id="camTol" min="0" max="100" step="1">
+          </div>
+          <p class="cam-note" id="camBgNote"></p>
+          <div class="set-row"><div class="lbl"><b>Result</b><span>A preview: the final cut is made when the video is built</span></div></div>
+          <canvas class="cam-result" id="camResult" width="300" height="300"></canvas>
+          <label class="set-row" id="camApplyRow" hidden><span class="lbl"><b>Also apply to my existing takes</b><span id="camApplyHint"></span></span>
+            <span class="switch"><input type="checkbox" id="camApply"><span class="knob"></span></span></label>
+        </div>
+      </div>
+      <div class="cam-actions">
+        <button class="btn" id="camCancel" type="button">Cancel</button>
+        <button class="btn primary" id="camSave" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cam-float hidden" id="camFloat" title="Drag to move">
+  <canvas id="camFloatCanvas" width="320" height="320"></canvas>
+  <span class="cam-tag" id="camFloatTag"></span>
+  <button class="btn sm icon ghost cam-fold" id="camFloatFold" type="button"></button>
 </div>
 
 <input type="file" id="pickAny" accept=".json,.zip,application/json,application/zip" hidden>
@@ -699,6 +789,8 @@ const ICONS = {
   menu: 'M3 6h18M3 12h18M3 18h18',
   listen: 'M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z',
   shrink: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
+  video: 'M23 7l-7 5 7 5zM1 5h15v14H1z',
+  pipette: 'M2 22l1-4 10-10 3 3-10 10zM13 6l3-3a2.1 2.1 0 0 1 3 3l-3 3',
 };
 function icon(name, cls) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1249,6 +1341,7 @@ function sessionMeta() {
     v: SESSION_VERSION,
     ts: Date.now(),
     job,
+    mode,
     scenes: state.map(scenes => scenes.map(scene => ({
       index: scene.index, text: scene.text, status: scene.status,
       ratio: scene.ratio, transcript: scene.transcript,
@@ -1258,7 +1351,9 @@ function sessionMeta() {
     }))),
     sources: [...used].map(sha => {
       const src = sources.get(sha);
-      return {sha256: sha, name: src.name, recorded: !!src.recorded, duration: src.duration};
+      return {sha256: sha, name: src.name, recorded: !!src.recorded, duration: src.duration,
+              video: src.video ? {sha256: src.video.sha256, type: src.video.type, name: src.video.name,
+                                  setup: src.video.setup, frame: src.video.frame} : null};
     }),
   };
 }
@@ -1399,10 +1494,111 @@ function moveClip(clips, from, to) {
 const removeClip = (clips, i) => clips.filter((_, k) => k !== i);
 // ------------------------------------------------------ end of clip model ---
 
+// ------------------------------------------------------- camera model (pure) ---
+// Video takes. A crop is [x, y, w, h] in fractions of the camera frame, so it
+// survives any camera resolution; its shape in PIXELS (w * frameW over
+// h * frameH) is locked to the job's face-cam aspect, which keeps every take
+// of a scene joinable and the face-cam box the same shape all video long.
+const MIN_CROP = 0.1;   // the smaller side, as a fraction of the frame
+const QUALITY_CAPS = [1080, 720];
+const BACKGROUND_MODES = ['none', 'green', 'ai'];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// The largest centred crop of that shape.
+function fitCrop(aspect, frameW, frameH) {
+  const frame = frameW / frameH;
+  const w = aspect < frame ? aspect / frame : 1, h = aspect < frame ? 1 : frame / aspect;
+  return [(1 - w) / 2, (1 - h) / 2, w, h];
+}
+function moveCrop([x, y, w, h], dx, dy) {
+  return [clamp(x + dx, 0, 1 - w), clamp(y + dy, 0, 1 - h), w, h];
+}
+// Drag one corner ('nw' | 'ne' | 'sw' | 'se'); the opposite corner stays put.
+// The pointer's larger move (across or down) sets the new size.
+function resizeCrop([x, y, w, h], corner, dx, dy, aspect, frameW, frameH) {
+  const ratio = frameW / (aspect * frameH);        // h = w * ratio keeps the shape
+  const east = corner.includes('e'), south = corner.includes('s');
+  const ax = east ? x : x + w, ay = south ? y : y + h;   // the fixed corner
+  const byX = w + (east ? dx : -dx), byY = (h + (south ? dy : -dy)) / ratio;
+  let nw = Math.abs(byX - w) >= Math.abs(byY - w) ? byX : byY;
+  const room = Math.min(east ? 1 - ax : ax, (south ? 1 - ay : ay) / ratio);
+  nw = clamp(nw, MIN_CROP * Math.max(1, 1 / ratio), room);
+  const nh = nw * ratio;
+  // Clamped again: `ay - nh` can land a float's breadth outside the frame.
+  return [clamp(east ? ax : ax - nw, 0, 1 - nw), clamp(south ? ay : ay - nh, 0, 1 - nh), nw, nh];
+}
+
+// Green screen. The page only PREVIEWS the key; the desktop computes the real
+// one with a twin of this formula (same constants, same test cases): the
+// BT.601 distance from a pixel to the NEAREST key colour (colour, plus
+// brightness at half weight); alpha ramps from 0 at the tolerance to 1 a
+// softness further, the softness growing with the tolerance. So 0 % keys only
+// the picked colours, and a pick where the screen is lit plus one where it is
+// shaded cover an uneven screen at a low tolerance, sparing the narrator.
+const KEY_SPAN = 128, KEY_LUMA = 0.5, KEY_SOFT_MIN = 3, KEY_SOFT_SHARE = 0.25;
+const chromaOf = (r, g, b) => [-0.168736 * r - 0.331264 * g + 0.5 * b,
+                               0.5 * r - 0.418688 * g - 0.081312 * b];
+const lumaOf = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
+function nearestKey(cb, cr, keys) {
+  let best = null, dist = Infinity;
+  for (const [kr, kg, kb] of keys) {
+    const k = chromaOf(kr, kg, kb), d = Math.hypot(cb - k[0], cr - k[1]);
+    if (d < dist) { dist = d; best = k; }
+  }
+  return {key: best, dist};
+}
+// The keys' colour is worked out once; the result is called per pixel.
+function makeKeyer(keys, tolerance) {
+  const prepared = keys.map(([r, g, b]) => [lumaOf(r, g, b), ...chromaOf(r, g, b)]);
+  const lo = tolerance / 100 * KEY_SPAN, ramp = KEY_SOFT_MIN + KEY_SOFT_SHARE * lo;
+  return (r, g, b) => {
+    const y = lumaOf(r, g, b), [cb, cr] = chromaOf(r, g, b);
+    let dist = Infinity;
+    for (const [ky, kcb, kcr] of prepared)
+      dist = Math.min(dist, Math.hypot(cb - kcb, cr - kcr, KEY_LUMA * (y - ky)));
+    return clamp((dist - lo) / ramp, 0, 1);
+  };
+}
+const keyAlpha = (r, g, b, keys, tolerance) => makeKeyer(keys, tolerance)(r, g, b);
+// The screen's colour bleeds into the edges it lights; a partly transparent
+// pixel loses the share of its chroma that points toward the key, scaled by
+// how transparent it is. Luma is kept, so the edge does not darken.
+function despill(r, g, b, keys, alpha) {
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  let [cb, cr] = chromaOf(r, g, b);
+  const {key} = nearestKey(cb, cr, keys);
+  const len = Math.hypot(key[0], key[1]);
+  if (len && alpha < 1) {
+    const ux = key[0] / len, uy = key[1] / len;
+    const toward = Math.max(0, cb * ux + cr * uy) * (1 - alpha);
+    cb -= toward * ux;
+    cr -= toward * uy;
+  }
+  return [y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb];
+}
+const hexRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+
+// A take's camera setup, as it travels in the return zip. '' when valid,
+// else what is wrong with it.
+function validSetup(setup) {
+  const crop = setup && setup.crop;
+  if (!Array.isArray(crop) || crop.length !== 4 || crop.some(v => typeof v !== 'number' || !(v >= 0)) ||
+      crop[2] <= 0 || crop[3] <= 0 || crop[0] + crop[2] > 1 + 1e-9 || crop[1] + crop[3] > 1 + 1e-9)
+    return 'the crop is not inside the frame';
+  if (!QUALITY_CAPS.includes(setup.quality)) return 'the quality cap is not ' + QUALITY_CAPS.join(' or ');
+  const bg = setup.background || {};
+  if (!BACKGROUND_MODES.includes(bg.mode)) return 'unknown background mode';
+  if (bg.mode === 'green') {
+    if (!Array.isArray(bg.colors) || !bg.colors.length ||
+        bg.colors.some(c => !/^#[0-9a-f]{6}$/i.test(c))) return 'the key colours are not valid';
+    if (!(bg.tolerance >= 0 && bg.tolerance <= 100)) return 'the tolerance is not between 0 and 100';
+  }
+  return '';
+}
+
 // ---------------------------------------------------------------- sources ---
 // Every audio file this page holds, by sha256: attached files, recorded
 // takes, parts pulled out of a draft. Immutable — clips only point at them.
-const sources = new Map();   // sha256 -> {sha256, blob, name, duration, recorded, peaks}
+const sources = new Map();   // sha256 -> {sha256, blob, name, duration, recorded, peaks, video?}
 const extOf = name => ('.' + name.split('.').pop()).toLowerCase();
 const stem = name => name.replace(/\.[^.]*$/, '');
 
@@ -1419,7 +1615,7 @@ function mediaDuration(blob) {
   });
 }
 
-async function registerSource(blob, name, {recorded = false, sha = null, duration = null} = {}) {
+async function registerSource(blob, name, {recorded = false, sha = null, duration = null, video = null} = {}) {
   const sha256 = sha || await sha256hex(blob);
   let src = sources.get(sha256);
   if (!src) {
@@ -1435,10 +1631,72 @@ async function registerSource(blob, name, {recorded = false, sha = null, duratio
     }
     await sessionPutBlob(sha256, blob);   // auto-resume keeps the audio too
   }
+  if (video && !src.video) src.video = await storeVideo(video);
   return src;
 }
 const wholeClip = src => ({id: newClipId(), src: src.sha256, start: 0, end: src.duration,
                            whole: true, renderedSha: null});
+
+// ------------------------------------------------------- video return (pure) ---
+// A video job's zip (dubbing-return/3). The page never cuts video: each take
+// ships ONCE, whole (its audio file plus its camera video), and every scene is
+// a list of windows over takes. The desktop does the trimming, cropping and
+// joining. `heardWords[i][n]` is, per clip, the timed words the check heard
+// (null when not all known).
+const RETURN_V3 = 'dubbing-return/3';
+const round4 = v => Math.round(v * 1e4) / 1e4;
+const takePath = src => 'takes/' + src.sha256.slice(0, 12) + extOf(src.name);
+function videoExt(video) {
+  if (video.name) return extOf(video.name);
+  return video.type.startsWith('video/mp4') ? '.mp4' : video.type.startsWith('video/quicktime') ? '.mov'
+       : video.type.startsWith('video/x-matroska') ? '.mkv' : '.webm';
+}
+const takeVideoPath = src => 'takes/' + src.sha256.slice(0, 12) + '-video' + videoExt(src.video);
+// A draft is the narrator's backup and saves a take whose video is gone
+// (`video: null`, an evicted blob or an undo after switching modes); only the
+// final export insists on every clip having its picture.
+function videoReturn(job, state, sources, draft, heardWords) {
+  const used = new Map();
+  for (const scenes of state) for (const scene of scenes) for (const clip of scene.clips) {
+    const src = sources.get(clip.src);
+    if (!src.video && !draft) throw new Error('"' + src.name + '" has no video: record it again with the camera on.');
+    used.set(src.sha256, src);
+  }
+  const windowOf = clip => ({take: takePath(sources.get(clip.src)), start: round4(clip.start), end: round4(clip.end)});
+  const report = {
+    format: RETURN_V3,
+    job_id: job.job_id,
+    draft,
+    generated_at: new Date().toISOString().slice(0, 19),
+    takes: [...used.values()].map(src => ({
+      file: takePath(src), sha256: src.sha256, name: src.name,
+      video: src.video ? {file: takeVideoPath(src), sha256: src.video.sha256} : null,
+      camera: src.video ? {crop: src.video.setup.crop, quality: src.video.setup.quality,
+                           background: src.video.setup.background} : null,
+    })),
+    items: job.items.map((item, i) => ({
+      project: item.project,
+      scenes: state[i].map((scene, n) => {
+        const words = scene.checked && heardWords[i][n];
+        return {
+          index: scene.index,
+          text: scene.text,
+          clips: scene.clips.map(windowOf),
+          // As in dubbing-return/2, the transcript is the evidence and the
+          // windows it was heard from are what it is bound to.
+          stt: {status: scene.status === 'working' ? 'unchecked' : scene.status,
+                ratio: round4(scene.ratio),
+                transcript: scene.checked ? scene.transcript : '',
+                heard: scene.checked ? scene.clips.map(windowOf) : [],
+                words: words || []},
+        };
+      }),
+    })),
+  };
+  const files = [...used.values()].flatMap(src => [{path: takePath(src), blob: src.blob},
+    ...(src.video ? [{path: takeVideoPath(src), blob: src.video.blob}] : [])]);
+  return {report, files};
+}
 
 // ------------------------------------------------------------------- ffmpeg ---
 // The narrator records .mp4 whose picture is a dead still frame: the video
@@ -1836,7 +2094,28 @@ registerProcessor('capture', Capture);`;
 
 const recorder = {phase: 'idle', scene: null, stream: null, ctx: null, node: null,
                   analyser: null, chunks: [], startedAt: 0, raf: 0, peakHold: -90,
-                  clipUntil: 0, level: -90, done: null, attempt: 0};
+                  clipUntil: 0, level: -90, done: null, attempt: 0, camera: null};
+
+// In a video job a take also records the camera: MediaRecorder on the camera
+// track itself (no canvas, so nothing a browser's anti-fingerprinting noise
+// can touch), started on the same tick as the microphone capture. Measured:
+// the two land within 9 ms of each other, under one frame.
+const CAMERA_TYPES = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+function cameraRecorder(stream, quality) {
+  const type = CAMERA_TYPES.find(t => MediaRecorder.isTypeSupported(t));
+  const rec = new MediaRecorder(new MediaStream(stream.getVideoTracks()),
+                                {mimeType: type, videoBitsPerSecond: quality >= 1080 ? 6e6 : 3e6});
+  const chunks = [];
+  rec.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+  const stopped = new Promise(resolve => { rec.onstop = resolve; });
+  rec.onerror = event => banner('The camera recording failed (' + ((event.error && event.error.message) || 'unknown error') +
+                                '). The take\'s audio is still being recorded.');
+  return {rec, type: rec.mimeType || type, stop: async () => {
+    if (rec.state !== 'inactive') rec.stop();
+    await stopped;
+    return new Blob(chunks, {type: rec.mimeType || type});
+  }};
+}
 
 function micError(error) {
   const name = error && error.name;
@@ -1857,6 +2136,29 @@ async function startRecording(scene) {
   recorder.scene = scene;
   const attempt = ++recorder.attempt;
   drawRecorder();
+  let setup = null;
+  if (mode === 'video') {
+    try { await openCamera(); } catch (error) {
+      if (recorder.attempt !== attempt) return;
+      recorder.phase = 'idle';
+      recorder.scene = null;
+      drawRecorder();
+      banner(cameraError(error));
+      return;
+    }
+    if (recorder.attempt !== attempt) return;   // R pressed again while the camera started
+    setup = currentSetup();
+    const problem = validSetup(setup) ||
+      (setup.background.mode === 'green' && !setup.background.colors.length ? 'no screen colour picked' : '');
+    if (problem || !cameraPref().crop) {
+      recorder.phase = 'idle';
+      recorder.scene = null;
+      drawRecorder();
+      banner('Finish the camera setup first' + (problem ? ' (' + problem + ')' : '') + '.');
+      openCameraSetup();
+      return;
+    }
+  }
   try {
     const deviceId = prefs.get('rec.device', '');
     const stream = await navigator.mediaDevices.getUserMedia({audio: {
@@ -1905,6 +2207,11 @@ async function startRecording(scene) {
         if (recorder.attempt !== attempt) return;   // cancelled mid-count
       }
     }
+    if (setup) {
+      const camera = cameraRecorder(cam.stream, setup.quality);
+      recorder.camera = {...camera, setup, frame: cam.frame};
+      camera.rec.start(1000);
+    }
     node.port.postMessage('start');
     recorder.phase = 'recording';
     recorder.startedAt = performance.now();
@@ -1933,6 +2240,9 @@ async function stopRecording() {
   if (recorder.phase !== 'recording') return;
   recorder.phase = 'processing';
   drawRecorder();
+  const camera = recorder.camera;
+  recorder.camera = null;
+  const videoBlob = camera ? camera.stop() : null;
   recorder.node.port.postMessage('stop');
   await recorder.done;
   const rate = recorder.ctx.sampleRate;
@@ -1946,8 +2256,16 @@ async function stopRecording() {
     const blob = await processTake(samples, rate);
     const taken = [...sources.values()].map(s => (s.name.match(/^Take (\d+)/) || [0, 0])[1] | 0);
     const number = Math.max(0, ...taken) + 1;
+    let video = camera ? {blob: await videoBlob, type: camera.type, setup: camera.setup, frame: camera.frame} : null;
+    if (video && !video.blob.size) {
+      // Never lose the narrator's voice to a camera hiccup: the take is kept
+      // without its picture (it blocks only the final export).
+      video = null;
+      banner('The camera recorded nothing for this take. Its audio was kept: record it again ' +
+             'with the camera, or switch to audio only.');
+    }
     const src = await registerSource(
-      blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true});
+      blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true, video});
     await decodeSource(src).catch(() => {});
     commit(scene, [...scene.clips, wholeClip(src)]);
     toast('Take ' + number + ' added to the ' + cardLabel(scene) + ' (' + clock(src.duration) + ').');
@@ -1962,6 +2280,7 @@ async function stopRecording() {
 
 function cleanupRecorder() {
   cancelAnimationFrame(recorder.raf);
+  if (recorder.camera) { recorder.camera.stop(); recorder.camera = null; }   // a cancelled take
   if (recorder.stream) recorder.stream.getTracks().forEach(track => track.stop());
   if (recorder.ctx) recorder.ctx.close().catch(() => {});
   Object.assign(recorder, {stream: null, ctx: null, node: null, analyser: null, level: -90});
@@ -1989,6 +2308,523 @@ function showCount(n) {
   const layer = h('div', {class: 'countin'}, h('span', {text: String(n)}));
   document.body.append(layer);
   setTimeout(() => layer.remove(), 850);
+}
+
+// ------------------------------------------------------------- video takes ---
+// The job's recording mode, remembered per browser: 'audio' or 'video'. A
+// video take is its audio source exactly as in an audio-only job (waveform,
+// check, retakes and cuts all work on that, unchanged) plus `src.video` =
+// {blob, sha256, type, name, setup, frame}: the camera recording that started
+// on the same tick, and the camera setup it was recorded with. The page never
+// cuts video; the desktop trims, crops and removes the background.
+const MODES = ['audio', 'video'];
+let mode = MODES.includes(prefs.get('station.mode', 'audio')) ? prefs.get('station.mode', 'audio') : 'audio';
+const jobAspect = () => job && job.camera && job.camera.aspect > 0 ? job.camera.aspect : null;
+const usedSources = () => [...new Set(allScenes().flatMap(scene => scene.clips.map(c => c.src)))]
+  .map(sha => sources.get(sha));
+const STALE_JOB = 'This job file was exported by an older version of the desktop tool, so it ' +
+  'cannot record video. Ask for the job to be exported again.';
+
+function paintMode() {
+  document.querySelectorAll('[data-mode-seg] button').forEach(button => {
+    const on = button.dataset.mode === mode;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', on);
+  });
+  $('modeState').className = 'state ok';
+  $('modeState').replaceChildren(icon(mode === 'video' ? 'video' : 'mic', 'sm'));
+  $('cameraBtn').disabled = !(mode === 'video' && jobAspect());
+  $('cameraHint').textContent = mode !== 'video' ? 'Switch to Video to set up the camera.'
+    : !job ? 'Open a job first.' : !jobAspect() ? STALE_JOB
+    : 'Camera, quality, framing and background for video takes.';
+  updateFloat();
+  drawRecorder();
+}
+
+// Switching keeps what can be kept and asks before anything is lost: to audio
+// only, the takes keep their audio and lose their video; to video, clips with
+// no video cannot be part of a video job and must be recorded again.
+async function setMode(next) {
+  if (next === mode || !MODES.includes(next)) return paintMode();
+  if (recorder.phase !== 'idle') { banner('Stop the recording first.'); return paintMode(); }
+  if (job && next === 'video' && !jobAspect()) { banner(STALE_JOB); return paintMode(); }
+  if (job && next === 'audio') {
+    const withVideo = [...sources.values()].filter(src => src.video);
+    if (withVideo.length && !confirm('Switch to audio only?\nThe video of ' + withVideo.length +
+        ' take(s) is removed. Their audio stays.')) return paintMode();
+    for (const src of withVideo) delete src.video;
+  }
+  if (job && next === 'video') {
+    const without = allScenes().filter(scene => scene.clips.some(c => !sources.get(c.src).video));
+    const count = without.reduce((n, scene) => n + scene.clips.filter(c => !sources.get(c.src).video).length, 0);
+    if (count && !confirm('Switch to video?\n' + count + ' clip(s) have no video and will be removed. ' +
+        'Record those parts again with the camera.')) return paintMode();
+    for (const scene of without) await commit(scene, scene.clips.filter(c => sources.get(c.src).video));
+  }
+  mode = next;
+  prefs.set('station.mode', next);
+  paintMode();
+  if (job) { autosave(); updateProgress(); }
+  if (job && mode === 'video' && !cameraPref().crop) openCameraSetup();
+}
+
+// A job loaded while the switch says video, but too old to carry the face-cam
+// shape, is worked on in audio only (the remembered choice is left alone).
+function modeForJob() {
+  if (mode === 'video' && !jobAspect()) { mode = 'audio'; banner(STALE_JOB + ' Working in audio only.'); }
+  $('modeTop').classList.remove('hidden');
+  paintMode();
+  if (mode === 'video' && !cameraPref().crop) openCameraSetup();
+}
+
+// The saved camera setup for NEW takes (per browser): the device, the quality
+// cap, the crop and the background.
+function cameraPref() {
+  try { return JSON.parse(prefs.get('station.camera', 'null')) || {}; } catch (error) { return {}; }
+}
+// A crop made on one camera keeps its fractions; on a frame of another shape
+// they would give the wrong face-cam shape, so it is re-fitted there.
+function cropFor(crop, frame) {
+  const aspect = jobAspect();
+  if (!frame || !aspect) return crop;
+  if (crop && Math.abs(crop[2] * frame[0] / (crop[3] * frame[1]) - aspect) <= 0.01) return crop;
+  return fitCrop(aspect, frame[0], frame[1]);
+}
+function currentSetup(frame = cam.frame) {
+  const pref = cameraPref();
+  return {crop: cropFor(pref.crop, frame) || [0, 0, 1, 1],
+          quality: QUALITY_CAPS.includes(pref.quality) ? pref.quality : QUALITY_CAPS[0],
+          background: pref.background || {mode: 'none'}};
+}
+
+// One camera stream for the whole page: the floating preview, the setup page
+// and the recorder all read it. Opened in video mode, closed otherwise.
+const cam = {stream: null, opening: null, video: null, frame: null, gen: 0};
+const SUPERSEDED = 'superseded by a newer camera request';
+function cameraError(error) {
+  const name = error && error.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError')
+    return 'Camera access is blocked for this page. Allow it (the camera icon in the address bar).';
+  if (name === 'NotFoundError') return 'No camera was found. Plug one in, or switch to audio only.';
+  if (name === 'OverconstrainedError' || name === 'NotReadableError')
+    return 'The selected camera is not available (unplugged, or busy in another app). Pick another one in the camera setup.';
+  return 'Could not start the camera: ' + (error && error.message || error);
+}
+function openCamera() {
+  if (cam.stream) return Promise.resolve(cam.stream);
+  if (cam.opening) return cam.opening;
+  const pref = cameraPref(), cap = QUALITY_CAPS.includes(pref.quality) ? pref.quality : QUALITY_CAPS[0];
+  const gen = cam.gen;
+  cam.opening = navigator.mediaDevices.getUserMedia({audio: false, video: {
+    deviceId: pref.deviceId ? {exact: pref.deviceId} : undefined,
+    height: {ideal: cap, max: cap}, frameRate: {ideal: 30}}})
+    .then(async stream => {
+      // Closed or reopened meanwhile (a quick camera or quality change): this
+      // stream is not the one asked for any more.
+      if (mode !== 'video' || gen !== cam.gen) {
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error(SUPERSEDED);
+      }
+      cam.stream = stream;
+      if (!cam.video) { cam.video = document.createElement('video'); cam.video.muted = true; cam.video.playsInline = true; }
+      cam.video.srcObject = stream;
+      await cam.video.play().catch(() => {});
+      const {width, height} = stream.getVideoTracks()[0].getSettings();
+      cam.frame = width && height ? [width, height] : null;
+      return stream;
+    })
+    .finally(() => { if (gen === cam.gen) cam.opening = null; });
+  return cam.opening;
+}
+function closeCamera() {
+  cam.gen++;
+  cam.opening = null;
+  if (cam.stream) cam.stream.getTracks().forEach(track => track.stop());
+  cam.stream = null;
+  cam.frame = null;
+  if (cam.video) cam.video.srcObject = null;
+}
+function reopenCamera() {
+  closeCamera();
+  return openCamera().catch(error => { if (error.message !== SUPERSEDED) banner(cameraError(error)); });
+}
+
+// Stored with the take: the blob goes to the session store like every source.
+async function storeVideo({blob, type, name = null, setup, frame = null}) {
+  const sha256 = await sha256hex(blob);
+  await sessionPutBlob(sha256, blob);
+  return {blob, sha256, type: type || blob.type || 'video/webm', name, setup, frame};
+}
+function videoFrameSize(blob) {
+  return new Promise(resolve => {
+    const video = document.createElement('video'), url = URL.createObjectURL(blob);
+    const done = value => { URL.revokeObjectURL(url); resolve(value); };
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => done(video.videoWidth && video.videoHeight ? [video.videoWidth, video.videoHeight] : null);
+    video.onerror = () => done(null);
+    setTimeout(() => done(null), 5000);
+    video.src = url;
+  });
+}
+
+// ---- preview drawing: the crop, and a PREVIEW of the background removal ----
+// The desktop does the real removal. For green screen it runs the same key
+// formula; for the AI cut-out a heavier model may run there, so the result
+// can only look better than this.
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite';
+const ai = {segmenter: null, loading: null, failed: false, last: 0};
+function loadAi() {
+  if (ai.segmenter || ai.loading || ai.failed) return;
+  ai.loading = (async () => {
+    const {FilesetResolver, ImageSegmenter} = await import(MP_BASE + '/vision_bundle.mjs');
+    const fileset = await FilesetResolver.forVisionTasks(MP_BASE + '/wasm');
+    ai.segmenter = await ImageSegmenter.createFromOptions(fileset, {baseOptions: {modelAssetPath: MP_MODEL},
+      runningMode: 'VIDEO', outputConfidenceMasks: true, outputCategoryMask: false});
+  })().catch(error => {
+    ai.failed = true;
+    banner('The AI cut-out preview could not load (' + (error.message || error) + '). The video ' +
+           'is still cut out properly when it is built.');
+  }).finally(() => { ai.loading = null; });
+}
+function aiAlpha(canvas) {
+  if (!ai.segmenter) { loadAi(); return null; }
+  ai.last = Math.max(ai.last + 1, performance.now());   // VIDEO mode wants rising timestamps
+  const result = ai.segmenter.segmentForVideo(canvas, ai.last);
+  const alpha = Float32Array.from(result.confidenceMasks[0].getAsFloat32Array());
+  result.close();
+  return alpha;
+}
+function drawFacecam(canvas, media, setup) {
+  const ctx = canvas.getContext('2d', {willReadFrequently: true});
+  const vw = media && media.videoWidth, vh = media && media.videoHeight;
+  if (!vw || !vh) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }
+  const [x, y, w, h] = setup.crop;
+  ctx.drawImage(media, x * vw, y * vh, w * vw, h * vh, 0, 0, canvas.width, canvas.height);
+  const bg = setup.background || {mode: 'none'};
+  const green = bg.mode === 'green' && bg.colors && bg.colors.length;
+  if (!green && bg.mode !== 'ai') return;
+  let alpha = null, keys = null;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height), d = img.data;
+  if (green) {
+    keys = bg.colors.map(hexRgb);
+    const keyer = makeKeyer(keys, bg.tolerance);
+    alpha = new Float32Array(d.length / 4);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) alpha[p] = keyer(d[i], d[i + 1], d[i + 2]);
+  } else alpha = aiAlpha(canvas);
+  if (!alpha) return;
+  // A checkerboard behind: what will be see-through reads as such.
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const a = alpha[p];
+    if (a >= 1) continue;
+    const px = p % canvas.width, py = (p / canvas.width) | 0;
+    const back = ((px >> 3) + (py >> 3)) & 1 ? 150 : 110;
+    let r = d[i], g = d[i + 1], b = d[i + 2];
+    if (keys && a > 0) [r, g, b] = despill(r, g, b, keys, a);
+    d[i] = a * r + (1 - a) * back;
+    d[i + 1] = a * g + (1 - a) * back;
+    d[i + 2] = a * b + (1 - a) * back;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+// A canvas of the face-cam's shape, `width` wide.
+function sizeFacecam(canvas, width) {
+  const height = Math.round(width / (jobAspect() || 1));
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+}
+
+// ---- the floating preview ----
+// The live camera while recording or idle, the take under the playhead while
+// playing. Throttled: it runs beside the reading, not instead of it.
+const float = {raf: 0, last: 0, take: null, url: null, urlSha: null, drag: null, saved: undefined};
+function takeVideo(src) {
+  if (!float.take) { float.take = document.createElement('video'); float.take.muted = true; float.take.playsInline = true; }
+  if (float.urlSha !== src.video.sha256) {
+    if (float.url) URL.revokeObjectURL(float.url);
+    float.url = URL.createObjectURL(src.video.blob);
+    float.urlSha = src.video.sha256;
+    float.take.src = float.url;
+  }
+  return float.take;
+}
+function updateFloat() {
+  const show = mode === 'video' && !!job && !$('workspace').classList.contains('hidden');
+  $('camFloat').classList.toggle('hidden', !show);
+  if (show) {
+    openCamera().catch(error => {
+      if (error.message === SUPERSEDED) return;
+      $('camFloatTag').textContent = 'No camera';
+      banner(cameraError(error));
+    });
+    if (!float.raf) float.raf = requestAnimationFrame(floatTick);
+    placeFloat();
+  } else {
+    cancelAnimationFrame(float.raf);
+    float.raf = 0;
+    if (float.take) float.take.pause();
+    closeCamera();
+  }
+}
+function floatTick(now) {
+  float.raf = requestAnimationFrame(floatTick);
+  if (!float.saved && !float.drag) placeFloat();
+  if ($('camFloat').classList.contains('folded') || now - float.last < 66) return;
+  float.last = now;
+  const canvas = $('camFloatCanvas');
+  sizeFacecam(canvas, 320);
+  let media = cam.video, setup = currentSetup(), tag = recorder.phase === 'recording' ? '● REC' : 'Camera';
+  const playing = player.playing && current && player.scene === current;
+  const hit = playing && locate(current.clips, playheadNow());
+  const clip = hit && current.clips[hit.i], src = clip && sources.get(clip.src);
+  if (src && src.video) {
+    const video = takeVideo(src), want = clip.start + hit.within;
+    if (Math.abs(video.currentTime - want) > 0.25) video.currentTime = want;
+    if (video.paused) video.play().catch(() => {});
+    media = video;
+    setup = src.video.setup;
+    tag = stem(src.name);
+  } else if (float.take && !float.take.paused) float.take.pause();
+  drawFacecam(canvas, media, setup);
+  $('camFloatTag').textContent = tag;
+}
+// Where the narrator dragged it, remembered; until then bottom right, riding
+// just above the audio dock (whose height changes with the scene and folds).
+function placeFloat() {
+  const box = $('camFloat');
+  if (float.saved === undefined)
+    try { float.saved = JSON.parse(prefs.get('cam.float', 'null')); } catch (error) { float.saved = null; }
+  const w = box.offsetWidth || 220, hgt = box.offsetHeight || 220;
+  const dockTop = ui.dock && ui.dock.isConnected ? ui.dock.getBoundingClientRect().top : window.innerHeight - 230;
+  const [left, top] = float.saved || [window.innerWidth - w - 24, dockTop - hgt - 16];
+  box.style.left = clamp(left, 8, Math.max(8, window.innerWidth - w - 8)) + 'px';
+  box.style.top = clamp(top, 8, Math.max(8, window.innerHeight - hgt - 8)) + 'px';
+}
+function wireFloat() {
+  const box = $('camFloat');
+  const paintFold = () => {
+    const folded = box.classList.contains('folded');
+    $('camFloatFold').replaceChildren(icon(folded ? 'up' : 'down', 'sm'));
+    $('camFloatFold').title = folded ? 'Show the camera preview' : 'Fold the camera preview';
+    $('camFloatFold').setAttribute('aria-label', $('camFloatFold').title);
+  };
+  box.classList.toggle('folded', prefs.flag('cam.folded', false));
+  paintFold();
+  $('camFloatFold').onclick = event => {
+    event.stopPropagation();
+    box.classList.toggle('folded');
+    prefs.set('cam.folded', box.classList.contains('folded') ? '1' : '0');
+    paintFold();
+    placeFloat();
+  };
+  box.onpointerdown = event => {
+    if (event.target.closest('button')) return;
+    float.drag = {x: event.clientX - box.offsetLeft, y: event.clientY - box.offsetTop};
+    box.setPointerCapture(event.pointerId);
+  };
+  box.onpointermove = event => {
+    if (!float.drag) return;
+    box.style.left = clamp(event.clientX - float.drag.x, 8, window.innerWidth - box.offsetWidth - 8) + 'px';
+    box.style.top = clamp(event.clientY - float.drag.y, 8, window.innerHeight - box.offsetHeight - 8) + 'px';
+  };
+  box.onpointerup = () => {
+    if (!float.drag) return;
+    float.drag = null;
+    float.saved = [box.offsetLeft, box.offsetTop];
+    prefs.set('cam.float', JSON.stringify(float.saved));
+  };
+  window.addEventListener('resize', () => { if (!box.classList.contains('hidden')) placeFloat(); });
+}
+
+// ---- the camera setup page ----
+const camEdit = {setup: null, deviceId: '', drag: null, picking: false, raf: 0, last: 0};
+const HANDLE = 14;   // CSS px around a corner that grabs it
+async function openCameraSetup() {
+  if (mode !== 'video') return;
+  if (!jobAspect()) { banner(STALE_JOB); return; }
+  // Changing the camera restarts it, which would cut the take being recorded.
+  if (recorder.phase !== 'idle') { banner('Stop the recording first, then change the camera setup.'); return; }
+  const pref = cameraPref();
+  camEdit.before = pref;
+  camEdit.deviceId = pref.deviceId || '';
+  camEdit.setup = JSON.parse(JSON.stringify(currentSetup()));
+  camEdit.picking = false;
+  $('camQuality').value = String(camEdit.setup.quality);
+  $('camApply').checked = false;
+  const takes = usedSources().filter(src => src.video).length;
+  $('camApplyRow').hidden = !takes;
+  $('camApplyHint').textContent = takes + ' take(s) recorded so far keep their own setup unless this is on.';
+  $('cameraLayer').hidden = false;
+  paintCameraSetup();
+  try { await openCamera(); } catch (error) { if (error.message !== SUPERSEDED) banner(cameraError(error)); }
+  if ($('cameraLayer').hidden) return;   // cancelled while the camera started
+  camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+  fillCameraSelect();
+  if (!camEdit.raf) camEdit.raf = requestAnimationFrame(cameraSetupTick);
+}
+async function fillCameraSelect() {
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const live = cam.stream && cam.stream.getVideoTracks()[0].getSettings().deviceId;
+    $('camSelect').replaceChildren(...devices.map(d => h('option', {value: d.deviceId, text: d.label || 'Camera'})));
+    $('camSelect').value = camEdit.deviceId || live || (devices[0] && devices[0].deviceId) || '';
+  } catch (error) { /* enumerate can be blocked; the default camera still works */ }
+}
+function paintCameraSetup() {
+  const bg = camEdit.setup.background;
+  document.querySelectorAll('#camBg button').forEach(button => {
+    const on = button.dataset.bg === bg.mode;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', on);
+  });
+  $('camGreen').hidden = bg.mode !== 'green';
+  $('camBgNote').textContent = {
+    none: 'The face-cam shows the frame as it is.',
+    green: 'Pick the screen colour where it is lit and where it is shaded, then raise the tolerance until the screen is gone. At 0 % only the picked colours go.',
+    ai: 'An AI model finds you in the image; no screen needed. The preview here is lighter than the final cut-out.',
+  }[bg.mode];
+  if (bg.mode === 'green') {
+    $('camKeys').replaceChildren(...(bg.colors || []).map((hex, k) => h('span', {class: 'key-chip'},
+      h('i', {style: 'background:' + hex}), hex,
+      h('button', {type: 'button', title: 'Remove this colour', 'aria-label': 'Remove ' + hex, onclick: () => {
+        bg.colors.splice(k, 1);
+        paintCameraSetup();
+      }}, icon('x', 'sm')))));
+    $('camTol').value = String(bg.tolerance);
+    $('camTolLabel').textContent = bg.tolerance + ' %';
+    $('camPick').replaceChildren(icon('pipette', 'sm'), camEdit.picking ? 'Click the screen colour in the image…' : 'Pick a colour from the image');
+    $('camPick').classList.toggle('primary', camEdit.picking);
+  }
+  $('camStage').classList.toggle('picking', camEdit.picking);
+}
+function cameraSetupTick(now) {
+  camEdit.raf = requestAnimationFrame(cameraSetupTick);
+  if (now - camEdit.last < 50) return;
+  camEdit.last = now;
+  const video = cam.video, canvas = $('camCanvas');
+  if (!video || !video.videoWidth) return;
+  if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const [x, y, w, h] = camEdit.setup.crop, W = canvas.width, H = canvas.height;
+  ctx.fillStyle = 'rgba(0,0,0,.55)';   // dim what the face-cam leaves out
+  ctx.fillRect(0, 0, W, y * H);
+  ctx.fillRect(0, (y + h) * H, W, (1 - y - h) * H);
+  ctx.fillRect(0, y * H, x * W, h * H);
+  ctx.fillRect((x + w) * W, y * H, (1 - x - w) * W, h * H);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = Math.max(2, W / 480);
+  ctx.strokeRect(x * W, y * H, w * W, h * H);
+  const r = HANDLE * W / canvas.clientWidth / 2;
+  ctx.fillStyle = '#fff';
+  for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]])
+    ctx.fillRect(cx * W - r, cy * H - r, 2 * r, 2 * r);
+  sizeFacecam($('camResult'), 300);
+  drawFacecam($('camResult'), video, camEdit.setup);
+}
+function stagePoint(event) {
+  const rect = $('camCanvas').getBoundingClientRect();
+  return {fx: (event.clientX - rect.left) / rect.width, fy: (event.clientY - rect.top) / rect.height,
+          cx: event.clientX - rect.left, cy: event.clientY - rect.top, rect};
+}
+function wireCameraSetup() {
+  const canvas = $('camCanvas');
+  canvas.onpointerdown = event => {
+    if (!camEdit.setup || !cam.frame) return;
+    const p = stagePoint(event);
+    if (camEdit.picking) {
+      const probe = document.createElement('canvas');
+      probe.width = probe.height = 1;
+      probe.getContext('2d').drawImage(cam.video, p.fx * cam.video.videoWidth, p.fy * cam.video.videoHeight, 1, 1, 0, 0, 1, 1);
+      const [r, g, b] = probe.getContext('2d').getImageData(0, 0, 1, 1).data;
+      const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+      const bg = camEdit.setup.background;
+      bg.colors = [...(bg.colors || []).filter(c => c !== hex), hex].slice(-6);
+      camEdit.picking = false;
+      paintCameraSetup();
+      return;
+    }
+    const [x, y, w, h] = camEdit.setup.crop;
+    const near = (ax, ay) => Math.abs(p.cx - ax * p.rect.width) <= HANDLE && Math.abs(p.cy - ay * p.rect.height) <= HANDLE;
+    const corner = near(x, y) ? 'nw' : near(x + w, y) ? 'ne' : near(x, y + h) ? 'sw' : near(x + w, y + h) ? 'se' : null;
+    const inside = p.fx >= x && p.fx <= x + w && p.fy >= y && p.fy <= y + h;
+    if (!corner && !inside) return;
+    camEdit.drag = {corner, fx: p.fx, fy: p.fy};
+    canvas.setPointerCapture(event.pointerId);
+  };
+  canvas.onpointermove = event => {
+    if (!camEdit.drag) return;
+    const p = stagePoint(event), dx = p.fx - camEdit.drag.fx, dy = p.fy - camEdit.drag.fy;
+    camEdit.drag.fx = p.fx;
+    camEdit.drag.fy = p.fy;
+    camEdit.setup.crop = camEdit.drag.corner
+      ? resizeCrop(camEdit.setup.crop, camEdit.drag.corner, dx, dy, jobAspect(), cam.frame[0], cam.frame[1])
+      : moveCrop(camEdit.setup.crop, dx, dy);
+  };
+  canvas.onpointerup = () => { camEdit.drag = null; };
+  document.querySelectorAll('#camBg button').forEach(button => {
+    button.onclick = () => {
+      const bg = camEdit.setup.background;
+      camEdit.setup.background = button.dataset.bg === 'green'
+        ? {mode: 'green', colors: bg.colors || cameraPref().background?.colors || [], tolerance: bg.tolerance ?? 10}
+        : {mode: button.dataset.bg};
+      camEdit.picking = false;
+      paintCameraSetup();
+    };
+  });
+  $('camPick').onclick = () => { camEdit.picking = !camEdit.picking; paintCameraSetup(); };
+  $('camTol').oninput = () => {
+    camEdit.setup.background.tolerance = parseInt($('camTol').value, 10);
+    $('camTolLabel').textContent = camEdit.setup.background.tolerance + ' %';
+  };
+  // Device and quality take effect live, so the preview shows the real thing;
+  // Cancel puts the saved ones back.
+  $('camSelect').onchange = async () => {
+    camEdit.deviceId = $('camSelect').value;
+    prefs.set('station.camera', JSON.stringify({...cameraPref(), deviceId: camEdit.deviceId}));
+    await reopenCamera();
+    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+  };
+  $('camQuality').onchange = async () => {
+    camEdit.setup.quality = parseInt($('camQuality').value, 10);
+    prefs.set('station.camera', JSON.stringify({...cameraPref(), quality: camEdit.setup.quality}));
+    await reopenCamera();
+    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+  };
+  $('camSave').onclick = saveCameraSetup;
+  $('camCancel').onclick = cancelCameraSetup;
+  $('camScrim').onclick = cancelCameraSetup;
+}
+function closeCameraSetup() {
+  cancelAnimationFrame(camEdit.raf);
+  camEdit.raf = 0;
+  camEdit.drag = null;
+  $('cameraLayer').hidden = true;
+}
+function cancelCameraSetup() {
+  const before = JSON.stringify(camEdit.before || cameraPref());
+  closeCameraSetup();
+  if (before !== prefs.get('station.camera', 'null')) { prefs.set('station.camera', before); reopenCamera(); }
+}
+function saveCameraSetup() {
+  const setup = camEdit.setup, problem = validSetup(setup);
+  if (setup.background.mode === 'green' && !(setup.background.colors || []).length) {
+    banner('Pick at least one screen colour, or choose another background.');
+    return;
+  }
+  if (problem) { banner('The camera setup is not complete: ' + problem + '.'); return; }
+  prefs.set('station.camera', JSON.stringify({deviceId: camEdit.deviceId, quality: setup.quality,
+                                              crop: setup.crop, background: setup.background}));
+  if ($('camApply').checked) {
+    const takes = usedSources().filter(src => src.video);
+    for (const src of takes)
+      src.video.setup = {...src.video.setup, crop: cropFor(setup.crop, src.video.frame), background: setup.background};
+    sessionSave();
+    toast('The new setup now applies to ' + takes.length + ' existing take(s) too.');
+  }
+  closeCameraSetup();
 }
 
 // ------------------------------------------------------------- job loading ---
@@ -2046,8 +2882,13 @@ async function loadDraftFile(file) {
                       '(job.json and return.json missing). A zip exported ' +
                       'before this page could reopen finished work carries ' +
                       'no job.json — load its job .json file instead.');
-    loadJobObject(JSON.parse(await jobEntry.getData(new zip.TextWriter())), false);
     const parsed = JSON.parse(await returnEntry.getData(new zip.TextWriter()));
+    if (parsed.format !== 'dubbing-return/2' && parsed.format !== RETURN_V3)
+      throw new Error('This zip (' + parsed.format + ') needs a newer version of this page. ' +
+                      'Ask for the updated site link.');
+    mode = parsed.format === RETURN_V3 ? 'video' : 'audio';
+    loadJobObject(JSON.parse(await jobEntry.getData(new zip.TextWriter())), false);
+    const takes = parsed.format === RETURN_V3 ? await loadTakes(parsed, byName) : null;
     const byProject = new Map((parsed.items || []).map(item => [item.project, item]));
     setStatus('Opening your saved work…');
     for (let i = 0; i < job.items.length; i++) {
@@ -2059,7 +2900,8 @@ async function loadDraftFile(file) {
         if (!from) continue;
         if (typeof from.text === 'string') scene.text = from.text;
         let lost = false;
-        for (const part of from.parts || []) {
+        if (takes) lost = await restoreWindows(scene, from, takes);
+        for (const part of takes ? [] : from.parts || []) {
           const entry = byName.get(part.file);
           if (!entry) {
             lost = true;
@@ -2083,16 +2925,15 @@ async function loadDraftFile(file) {
         // is on screen immediately — no re-check needed to see it again. It
         // only counts as a real verdict when it was heard from exactly the
         // parts that came back.
-        const sameParts = Array.isArray(stt.parts) &&
-          stt.parts.length === scene.clips.length &&
-          stt.parts.every((sha, k) => scene.clips[k] && scene.clips[k].src === sha);
+        const sameParts = takes ? sameWindows(stt.heard, from.clips)
+          : Array.isArray(stt.parts) && stt.parts.length === scene.clips.length &&
+            stt.parts.every((sha, k) => scene.clips[k] && scene.clips[k].src === sha);
         scene.transcript = keep && sameParts ? (stt.transcript || '') : '';
         // Each part's word timings ride along too; filed in the transcript
         // cache under the part's hash, they tie the diff to the audio again
         // on any machine (and make a re-check free).
         if (scene.transcript && Array.isArray(stt.words) && stt.words.length === scene.clips.length)
-          for (const [k, words] of stt.words.entries())
-            await cachePut(scene.clips[k].src, {text: words.map(w => w[0]).join(' '), words});
+          await fileHeardWords(scene.clips, stt.words);
         scene.checked = !!scene.transcript;
         scene.status = !scene.clips.length ? 'missing' : keep ? verdict : 'unchecked';
         scene.ratio = keep ? (stt.ratio || 0) : 0;
@@ -2104,6 +2945,62 @@ async function loadDraftFile(file) {
     updateProgress();
     autosave();   // the zip is now the truth for this job id
   } finally { await reader.close(); }
+}
+
+// A video zip's takes: each audio file comes back as its source, its camera
+// video and setup with it. Map: take file -> source.
+async function loadTakes(parsed, byName) {
+  const takes = new Map();
+  for (const take of parsed.takes || []) {
+    const audio = byName.get(take.file), video = take.video && byName.get(take.video.file);
+    if (!audio || (take.video && !video)) {
+      banner('The saved zip is missing ' + (take.name || take.file) + ' or its video. ' +
+             'Record or attach that part again.');
+      continue;
+    }
+    let camera = null;
+    if (video) {   // a draft may hold a take whose video was already gone
+      const vblob = await video.getData(new zip.BlobWriter());
+      const vname = take.video.file.split('/').pop();
+      const typed = new Blob([vblob], {type: {'.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska'}[extOf(vname)] || 'video/webm'});
+      camera = {blob: typed, type: typed.type, name: null, setup: take.camera, frame: await videoFrameSize(typed)};
+    }
+    const name = take.name || take.file.split('/').pop();
+    const src = await registerSource(await audio.getData(new zip.BlobWriter()), name, {
+      recorded: /^Take \d+/.test(name), video: camera});
+    takes.set(take.file, src);
+  }
+  return takes;
+}
+// A scene's windows over those takes, as clips. True when one was lost.
+async function restoreWindows(scene, from, takes) {
+  let lost = false;
+  for (const win of from.clips || []) {
+    const src = takes.get(win.take);
+    if (!src) { lost = true; continue; }
+    const whole = win.start <= 0.0005 && Math.abs(win.end - src.duration) <= 0.0005;
+    scene.clips.push({id: newClipId(), src: src.sha256, start: win.start,
+                      end: whole ? src.duration : win.end, whole, renderedSha: null});
+  }
+  return lost;
+}
+const sameWindows = (heard, clips) => Array.isArray(heard) && Array.isArray(clips) &&
+  heard.length === clips.length &&
+  heard.every((w, k) => w.take === clips[k].take && w.start === clips[k].start && w.end === clips[k].end);
+// Timed words that came back with a check, filed where heardOf looks: a
+// whole clip under its source, a window under its own rendered audio (the
+// render is deterministic, so a Check later finds the same hash). Never a
+// window's words under the whole take: that entry would claim to be the
+// take's full transcript, and every other clip of it would believe it.
+async function fileHeardWords(clips, perClip) {
+  for (const [k, words] of perClip.entries()) {
+    let sha = clips[k].src;
+    if (!clips[k].whole) {
+      try { sha = (await materialize(clips[k])).sha256; } catch (error) { continue; }
+    }
+    if (await cacheGet(sha)) continue;   // a real check of this exact audio wins
+    await cachePut(sha, {text: words.map(w => w[0]).join(' '), words});
+  }
 }
 
 // ----------------------------------------------------------- verdicts ---
@@ -2305,24 +3202,37 @@ async function addParts(scene, files) {
              MEDIA_EXT.join(' ') + ').');
       continue;
     }
+    if (mode === 'video' && !VIDEO_EXT.includes(ext)) {
+      banner('"' + file.name + '" has no video, and this job records video. Attach video files, ' +
+             'or switch to audio only.');
+      continue;
+    }
     try {
-      let blob = file;
-      if (prefs.flag('stripVideo', true) && VIDEO_EXT.includes(ext)) {
+      let blob = file, video = null;
+      if (mode === 'video') {
+        const frame = await videoFrameSize(file);
+        if (!frame) {
+          banner('"' + file.name + '" has no picture this browser can read, and this job records video.');
+          continue;
+        }
+        video = {blob: file, type: file.type || 'video/mp4', name: file.name, setup: currentSetup(frame), frame};
+      }
+      if (VIDEO_EXT.includes(ext)) {
         setStatus('Extracting the audio of ' + file.name + '…');
         try {
           const before = file.size;
           blob = await extractAudio(file);
-          toast('Audio extracted from ' + file.name + ': ' +
-                megabytes(before) + ' → ' + megabytes(blob.size) + '.');
+          if (!video) toast('Audio extracted from ' + file.name + ': ' +
+                            megabytes(before) + ' → ' + megabytes(blob.size) + '.');
         } catch (error) {
           blob = file;
-          banner('Could not extract the audio of "' + file.name + '" (' +
-                 (error.message || error) + '). Keeping the original file, ' +
-                 'which makes the upload and the zip much heavier.');
+          if (!video) banner('Could not extract the audio of "' + file.name + '" (' +
+                             (error.message || error) + '). Keeping the original file, ' +
+                             'which makes the upload and the zip much heavier.');
         }
       }
       setStatus('Reading ' + file.name + '…');
-      const src = await registerSource(blob, blob.name || file.name);
+      const src = await registerSource(blob, blob.name || file.name, {video});
       decodeSource(src).then(() => { if (current === scene) redrawTimeline(); }).catch(() => {});
       added.push(wholeClip(src));
     } catch (error) { banner('Could not read "' + file.name + '": ' + (error.message || error)); }
@@ -2350,6 +3260,7 @@ async function shrinkAttachedVideos() {
       try {
         const smaller = await extractAudio(new File([old.blob], old.name, {type: old.blob.type}));
         const src = await registerSource(smaller, smaller.name);
+        if (old.video) src.video = old.video;
         const heard = await cacheGet(old.sha256);
         if (heard !== undefined) await cachePut(src.sha256, heard);
         for (const scene of state.flat()) {
@@ -2623,6 +3534,7 @@ async function writeZip(draft, filename) {
       handle = null;   // no picker permission, fall back to a download
     }
   }
+  if (mode === 'video') return writeVideoZip(draft, filename, handle);
   const plan = await materializeAll();
   const stream = handle ? await handle.createWritable() : null;
   const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'),
@@ -2652,6 +3564,46 @@ async function writeZip(draft, filename) {
     const url = URL.createObjectURL(blob);
     const link = h('a', {href: url, download: filename});
     link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  updateProgress();
+  return true;
+}
+
+// The per-clip timed words a check heard, so a reopened draft still ties the
+// diff to the audio. null for a scene not (fully) known.
+async function heardWordsOf(scene) {
+  if (!scene.checked) return null;
+  const words = [];
+  for (const clip of scene.clips) {
+    const known = await heardOf(clip);
+    if (!known) return null;
+    words.push(known.words);
+  }
+  return words;
+}
+async function writeVideoZip(draft, filename, handle) {
+  const heard = [];
+  for (const scenes of state) {
+    const row = [];
+    for (const scene of scenes) row.push(await heardWordsOf(scene));
+    heard.push(row);
+  }
+  const {report, files} = videoReturn(job, state, sources, draft, heard);   // throws on a clip without video
+  const stream = handle ? await handle.createWritable() : null;
+  const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'), {level: 0});
+  await writer.add('return.json', new zip.TextReader(JSON.stringify(report, null, 2)), {level: 0});
+  await writer.add('job.json', new zip.TextReader(JSON.stringify(job)), {level: 0});
+  for (const [k, file] of files.entries()) {
+    setStatus('Writing ' + (k + 1) + ' of ' + files.length + ' files…');
+    await writer.add(file.path, new zip.BlobReader(file.blob), {level: 0});
+  }
+  const blob = await writer.close();
+  if (stream) {
+    try { await stream.close(); } catch (error) { /* zip.js closed it already */ }
+  } else {
+    const url = URL.createObjectURL(blob);
+    h('a', {href: url, download: filename}).click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   updateProgress();
@@ -2722,6 +3674,7 @@ function openWorkspace() {
   renderRail();
   showScene(firstOpenScene());
   updateProgress();
+  modeForJob();
 }
 
 const allScenes = () => state.flat();
@@ -3553,7 +4506,8 @@ function drawRecorder() {
       : [takes ? 'Record another take' : 'Record a take',
          'Each take is added after the last clip. ' + (prefs.flag('rec.denoise', true) ? 'Noise removal on' : 'Noise removal off')
          + ' · ' + (prefs.flag('rec.limiter', true) ? 'limiter on' : 'limiter off') + '.'],
-    arming: ['Starting the microphone…', 'Allow microphone access if the browser asks.'],
+    arming: [mode === 'video' ? 'Starting the camera and microphone…' : 'Starting the microphone…',
+             'Allow access if the browser asks.'],
     countin: ['Get ready…', 'Recording starts after the count.'],
     recording: [null, 'Press R or the button to stop. Pauses between takes are fine.'],
     processing: ['Cleaning up the take…', 'Noise removal and limiter, one moment.'],
@@ -3638,6 +4592,10 @@ function openKeys() {
 }
 
 function onKey(event) {
+  if (!$('cameraLayer').hidden) {   // the camera setup takes the keyboard while it is open
+    if (event.key === 'Escape') cancelCameraSetup();
+    return;
+  }
   const layerOpen = !$('settingsLayer').hidden || !$('keysLayer').hidden;
   if (event.key === 'Escape') {
     if (layerOpen) { closeLayer('settingsLayer'); closeLayer('keysLayer'); return; }
@@ -3809,10 +4767,18 @@ async function resumeSession() {
     let entry = null;
     try { entry = await idbGet('session', 'part:' + ref.sha256); } catch (error) { /* evicted */ }
     if (!entry || !entry.blob) { missing.push(ref.name); continue; }
-    sources.set(ref.sha256, {sha256: ref.sha256, blob: entry.blob, name: ref.name,
-                             recorded: !!ref.recorded, duration: ref.duration, peaks: null});
+    const src = {sha256: ref.sha256, blob: entry.blob, name: ref.name,
+                 recorded: !!ref.recorded, duration: ref.duration, peaks: null};
+    if (ref.video) {
+      let video = null;
+      try { video = await idbGet('session', 'part:' + ref.video.sha256); } catch (error) { /* evicted */ }
+      if (video && video.blob) src.video = {...ref.video, blob: video.blob};
+      else missing.push(ref.name + ' (its video)');
+    }
+    sources.set(ref.sha256, src);
   }
   if (job) return false;
+  mode = MODES.includes(meta.mode) ? meta.mode : 'audio';
   loadJobObject(meta.job, false);
   for (let i = 0; i < state.length; i++) {
     const saved = new Map((meta.scenes[i] || []).map(scene => [scene.index, scene]));
@@ -3899,7 +4865,7 @@ function wire() {
   $('keyShow').onclick = () => { $('key').type = $('key').type === 'password' ? 'text' : 'password'; };
 
   for (const [id, pref, fallback] of [['optDenoise', 'rec.denoise', true], ['optLimiter', 'rec.limiter', true],
-                                      ['optCountIn', 'rec.countin', true], ['stripVideo', 'stripVideo', true],
+                                      ['optCountIn', 'rec.countin', true],
                                       ['optCutRetakes', 'check.cutRetakes', true]]) {
     $(id).checked = prefs.flag(pref, fallback);
     $(id).onchange = () => {
@@ -3912,6 +4878,13 @@ function wire() {
 
   $('settingsBtn').onclick = openSettings;
   $('keysBtn').onclick = openKeys;
+  document.querySelectorAll('[data-mode-seg] button').forEach(button => {
+    button.onclick = () => setMode(button.dataset.mode).catch(say);
+  });
+  $('cameraBtn').onclick = () => { closeLayer('settingsLayer'); openCameraSetup(); };
+  wireCameraSetup();
+  wireFloat();
+  paintMode();
   document.querySelectorAll('[data-close]').forEach(el => {
     el.onclick = () => { closeLayer('settingsLayer'); closeLayer('keysLayer'); };
   });
