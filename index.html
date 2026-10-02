@@ -205,6 +205,8 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
             color: var(--text-3); }
 .setup-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .setup-row:first-of-type { border-top: 0; }
+/* The microphone and the camera belong to "Recording": tucked under it. */
+.setup-row.sub-row { border-top: 0; padding-top: 2px; padding-left: 58px; }
 .setup-row .state { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
                     background: var(--sunk); color: var(--text-3); }
 .setup-row .state.ok { background: var(--ok-soft); color: var(--ok); }
@@ -540,17 +542,6 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
     <div class="setup">
       <h3>Before you start</h3>
       <div class="setup-row">
-        <div class="state" id="modeState"></div>
-        <div class="body">
-          <div class="title">Recording</div>
-          <div class="sub">Audio only, or video with your camera as the face-cam. You can switch later.</div>
-        </div>
-        <div class="seg mode-seg" data-mode-seg role="radiogroup" aria-label="Recording mode">
-          <button type="button" data-mode="audio" role="radio">Audio only</button>
-          <button type="button" data-mode="video" role="radio">Video</button>
-        </div>
-      </div>
-      <div class="setup-row">
         <div class="state busy" id="ffState"></div>
         <div class="body">
           <div class="title">ffmpeg</div>
@@ -568,10 +559,29 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
         </div>
       </div>
       <div class="setup-row">
+        <div class="state" id="modeState"></div>
+        <div class="body">
+          <div class="title">Recording</div>
+          <div class="sub">Audio only, or video with your camera as the face-cam. You can switch later.
+            The microphone and camera are only needed to record here; attaching your own files needs neither.</div>
+        </div>
+        <div class="seg mode-seg" data-mode-seg role="radiogroup" aria-label="Recording mode">
+          <button type="button" data-mode="audio" role="radio">Audio only</button>
+          <button type="button" data-mode="video" role="radio">Video</button>
+        </div>
+      </div>
+      <div class="setup-row sub-row">
         <div class="state" id="micState"></div>
         <div class="body">
-          <div class="title">Microphone <span class="sub">(optional)</span></div>
-          <div class="sub" id="micSub">Only needed to record here. The browser asks the first time you press Record.</div>
+          <div class="title">Microphone</div>
+          <div class="sub" id="micSub">The browser asks the first time you press Record.</div>
+        </div>
+      </div>
+      <div class="setup-row sub-row" id="camRow">
+        <div class="state" id="camState"></div>
+        <div class="body">
+          <div class="title">Camera</div>
+          <div class="sub" id="camSub">The browser asks the first time the camera starts.</div>
         </div>
       </div>
     </div>
@@ -2333,6 +2343,7 @@ function paintMode() {
   });
   $('modeState').className = 'state ok';
   $('modeState').replaceChildren(icon(mode === 'video' ? 'video' : 'mic', 'sm'));
+  $('camRow').classList.toggle('hidden', mode !== 'video');
   $('cameraBtn').disabled = !(mode === 'video' && jobAspect());
   $('cameraHint').textContent = mode !== 'video' ? 'Switch to Video to set up the camera.'
     : !job ? 'Open a job first.' : !jobAspect() ? STALE_JOB
@@ -2403,6 +2414,7 @@ const cam = {stream: null, opening: null, video: null, frame: null, gen: 0};
 const SUPERSEDED = 'superseded by a newer camera request';
 function cameraError(error) {
   const name = error && error.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError') setCamState('bad', 'Blocked in this browser');
   if (name === 'NotAllowedError' || name === 'SecurityError')
     return 'Camera access is blocked for this page. Allow it (the camera icon in the address bar).';
   if (name === 'NotFoundError') return 'No camera was found. Plug one in, or switch to audio only.';
@@ -2429,6 +2441,7 @@ function openCamera() {
       if (!cam.video) { cam.video = document.createElement('video'); cam.video.muted = true; cam.video.playsInline = true; }
       cam.video.srcObject = stream;
       await cam.video.play().catch(() => {});
+      setCamState('ok', 'Allowed: ' + stream.getVideoTracks()[0].label);
       const {width, height} = stream.getVideoTracks()[0].getSettings();
       cam.frame = width && height ? [width, height] : null;
       return stream;
@@ -4559,6 +4572,12 @@ function setMicState(stateName, text) {
   el.replaceChildren(icon(stateName === 'ok' ? 'check' : stateName === 'bad' ? 'x' : 'mic', 'sm'));
   if (text) $('micSub').textContent = text;
 }
+function setCamState(stateName, text) {
+  const el = $('camState');
+  el.className = 'state ' + stateName;
+  el.replaceChildren(icon(stateName === 'ok' ? 'check' : stateName === 'bad' ? 'x' : 'video', 'sm'));
+  if (text) $('camSub').textContent = text;
+}
 function setKeyState() {
   const has = $('key').value.trim() !== '';
   const el = $('keyState');
@@ -4683,7 +4702,7 @@ async function prepareFfmpeg() {
     });
     setFfState('busy', 'Testing ffmpeg…', 1);
     await ffmpeg.exec(['-version']);   // it answers ⇒ the engine really runs
-    setFfState('ok', 'Ready. Recordings are shrunk to audio when you attach them, and takes recorded here are cleaned up.', null);
+    setFfState('ok', 'Ready. Takes recorded here are cleaned up, and edits and attached recordings are processed right in this browser.', null);
   } catch (error) {
     ffmpegFailed = true;
     setFfState('bad', 'Unavailable: ' + (error.message || error), null);
@@ -4914,8 +4933,17 @@ function wire() {
   });
   wireDrops();
 
-  // Microphone permission, when the browser can tell without asking.
+  // Microphone and camera permission, when the browser can tell without asking.
   setMicState('', null);
+  setCamState('', null);
+  if (navigator.permissions && navigator.permissions.query)
+    navigator.permissions.query({name: 'camera'}).then(status => {
+      const paint = () => status.state === 'granted' ? setCamState('ok', 'Allowed.')
+        : status.state === 'denied' ? setCamState('bad', 'Blocked for this site. Allow it in the address bar to record video.')
+        : setCamState('', null);
+      paint();
+      status.onchange = paint;
+    }).catch(() => {});
   if (navigator.permissions && navigator.permissions.query)
     navigator.permissions.query({name: 'microphone'}).then(status => {
       const paint = () => status.state === 'granted' ? setMicState('ok', 'Allowed.')
