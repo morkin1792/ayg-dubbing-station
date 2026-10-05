@@ -173,6 +173,12 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
          background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ok);
          box-shadow: var(--shadow-lg); animation: rise .2s ease; }
 .toast svg.i { color: var(--ok); }
+/* A long job in progress (opening a big saved zip): one line, top centre. */
+.busy { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; gap: 10px;
+        align-items: center; padding: 9px 16px; border-radius: 99px; background: var(--panel);
+        border: 1px solid var(--line); box-shadow: var(--shadow-lg); font-size: 13.5px; color: var(--text-2);
+        max-width: calc(100vw - 32px); animation: drop .2s ease; }
+.busy svg.st { width: 16px; height: 16px; flex: none; }
 .toast .btn { flex: none; align-self: center; }
 @keyframes drop { from { opacity: 0; transform: translateY(-6px); } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
@@ -391,10 +397,10 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
 .legend .toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text); }
 .legend .toggle input { margin: 0; accent-color: var(--accent); }
 .stt-warn { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--bad); font-weight: 600; }
-.retake { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: var(--text-2); }
-.retake svg.i { color: var(--warn); }
-.retake .said { flex: 1; min-width: 200px; }
-.retake .said b { color: var(--text); }
+.suggest { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: var(--text-2); }
+.suggest svg.i { color: var(--warn); }
+.suggest .said { flex: 1; min-width: 200px; }
+.suggest .said b { color: var(--text); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 .empty-check { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .empty-check .what { flex: 1; min-width: 220px; color: var(--text-2); }
@@ -456,16 +462,25 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
             border: 1px solid var(--line-2); font: 600 12px/1 var(--mono); }
 .key-chip i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
 .key-chip button { border: 0; background: none; cursor: pointer; color: var(--text-3); padding: 2px; display: grid; }
-.cam-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.modal-note { margin: 0 0 8px; color: var(--text-2); font-size: 13.5px; }
+.input.num { flex: 0 0 84px; text-align: right; }
 .cam-note { color: var(--text-2); font-size: 12.5px; margin: 6px 0 0; }
+.cam-note.warn { color: var(--warn); font-weight: 600; display: flex; gap: 6px; align-items: flex-start; }
 .cam-float { position: fixed; z-index: 30; width: 220px; border-radius: 12px; overflow: hidden; background: #000;
              box-shadow: var(--shadow-lg); border: 1px solid var(--line-2); cursor: grab; touch-action: none; user-select: none; }
 .cam-float canvas { display: block; width: 100%; height: auto; }
+/* The plain face-cam: the video itself, cropped by CSS, so the graphics card
+   does it and the page draws nothing per frame. */
+.cam-plain { position: relative; width: 100%; overflow: hidden; display: none; }
+.cam-plain video { position: absolute; max-width: none; object-fit: fill; }
+.cam-float.plain .cam-plain { display: block; }
+.cam-float.plain canvas { display: none; }
 .cam-float .cam-tag { position: absolute; left: 8px; top: 7px; font: 700 11px/1 var(--ui); color: #fff;
                       background: rgba(0,0,0,.5); padding: 4px 6px; border-radius: 6px; pointer-events: none; }
 .cam-float .cam-fold { position: absolute; top: 3px; right: 3px; color: #fff; }
 .cam-float.folded { width: auto; min-width: 120px; height: 34px; }
-.cam-float.folded canvas { display: none; }
+.cam-float.folded canvas, .cam-float.folded .cam-plain { display: none !important; }
 .keys .k { display: flex; gap: 4px; justify-content: flex-end; }
 
 /* Responsive: the rail becomes a slide-over under 900px. */
@@ -524,6 +539,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 
 <div class="banners" id="banners" role="alert" aria-live="assertive"></div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div class="busy" id="busy" role="status" aria-live="polite" hidden></div>
 
 <section class="load" id="load">
   <div class="load-inner">
@@ -662,6 +678,31 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
   </div>
 </div>
 
+<div id="pausesLayer" hidden>
+  <div class="modal">
+    <div class="scrim" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pausesTitle">
+      <h2 id="pausesTitle">Shorten long pauses</h2>
+      <p class="modal-note">Cuts the pauses in this scene's audio down to about the length below. A pause
+        is only ever shortened, never made longer. A breath in a pause is removed whole or kept whole, never
+        cut in half. Ctrl+Z undoes it.</p>
+      <div class="set-row"><div class="lbl"><b>Pauses longer than</b><span>Seconds without voice. At the start
+        and end of the scene, a third of this.</span></div>
+        <input class="input num" id="pauseMin" type="number" min="0.2" max="30" step="0.1"> s</div>
+      <div class="set-row"><div class="lbl"><b>Become about</b><span>Seconds. At the start and end of the
+        scene, a third of this.</span></div>
+        <input class="input num" id="pauseGoal" type="number" min="0.1" max="30" step="0.1"> s</div>
+      <div class="set-row"><div class="lbl"><b>Variation</b><span>Each pause gets its own length, up to this
+        much shorter or longer, so they do not all sound the same.</span></div>
+        <input class="input num" id="pauseVary" type="number" min="0" max="90" step="5"> %</div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn primary" type="button" id="pausesApply">Shorten pauses</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="cameraLayer" hidden>
   <div class="modal">
     <div class="scrim" id="camScrim"></div>
@@ -675,6 +716,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
         <div class="cam-side">
           <div class="set-row"><div class="lbl"><b>Camera</b></div></div>
           <select class="input" id="camSelect" style="width:100%"></select>
+          <p class="cam-note" id="camRate" aria-live="polite"></p>
           <div class="set-row"><div class="lbl"><b>Quality</b><span>The most a recording uses</span></div>
             <select class="input" id="camQuality"><option value="1080">1080p</option><option value="720">720p</option></select></div>
           <div class="set-row"><div class="lbl"><b>Background</b></div></div>
@@ -696,7 +738,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
             <span class="switch"><input type="checkbox" id="camApply"><span class="knob"></span></span></label>
         </div>
       </div>
-      <div class="cam-actions">
+      <div class="modal-actions">
         <button class="btn" id="camCancel" type="button">Cancel</button>
         <button class="btn primary" id="camSave" type="button">Save</button>
       </div>
@@ -705,6 +747,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 </div>
 
 <div class="cam-float hidden" id="camFloat" title="Drag to move">
+  <div class="cam-plain" id="camPlain"></div>
   <canvas id="camFloatCanvas" width="320" height="320"></canvas>
   <span class="cam-tag" id="camFloatTag"></span>
   <button class="btn sm icon ghost cam-fold" id="camFloatFold" type="button"></button>
@@ -801,6 +844,7 @@ const ICONS = {
   shrink: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
   video: 'M23 7l-7 5 7 5zM1 5h15v14H1z',
   pipette: 'M2 22l1-4 10-10 3 3-10 10zM13 6l3-3a2.1 2.1 0 0 1 3 3l-3 3',
+  squeeze: 'M12 4v16M2 12h7M6 9l3 3-3 3M22 12h-7M18 9l-3 3 3 3',
 };
 function icon(name, cls) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1196,6 +1240,13 @@ function retakeRange(times, {from, to}) {
   const pause = k => k > 0 ? (times[k - 1][1] + times[k][0]) / 2 : 0;
   return [pause(from), pause(to)];
 }
+// What Play on a retake row plays: the failed part AND the attempt that
+// replaced it (as many heard words again, the stretch the detector compared),
+// so the two can be heard side by side.
+function retakePlayRange(times, cut) {
+  const last = Math.min(2 * cut.to - cut.from, times.length) - 1;
+  return [retakeRange(times, cut)[0], times[last][1]];
+}
 
 // Rebuild the line as the heard wording while keeping the punctuation and
 // paragraph breaks of everything that did not change. Works on character
@@ -1324,6 +1375,25 @@ async function cachePut(hash, heard) {
   try { await idbPut('transcripts', hash, {t: heard.text, w: heard.words, ts: Date.now()}); }
   catch (error) { cacheWarn(error); }
 }
+// The words heard in a source's windows (`addHeardWindow`), under a key of
+// their own: the source's plain entry is a WHOLE-file transcript, and a few
+// windows of it must never pass for one.
+const windowsKey = sha => 'windows:' + sha;
+async function heardWindowsGet(sha) {
+  try {
+    const entry = await idbGet('transcripts', windowsKey(sha));
+    return entry && Array.isArray(entry.w) && Array.isArray(entry.c) ? {words: entry.w, covered: entry.c} : undefined;
+  } catch (error) { cacheWarn(error); return undefined; }
+}
+async function heardWindowsPut(sha, known) {
+  try { await idbPut('transcripts', windowsKey(sha), {w: known.words, c: known.covered, ts: Date.now()}); }
+  catch (error) { cacheWarn(error); }
+}
+async function fileHeardWindow(clip, heard) {
+  if (clip.whole) return;   // filed under its source already: it IS the source
+  await heardWindowsPut(clip.src,
+    addHeardWindow(await heardWindowsGet(clip.src), clip.start * 1000, clip.end * 1000, heard.words));
+}
 
 // ------------------------------------------------- auto-resume session ---
 // The last unfinished project lives in the browser: texts, verdicts AND the
@@ -1356,8 +1426,7 @@ function sessionMeta() {
       index: scene.index, text: scene.text, status: scene.status,
       ratio: scene.ratio, transcript: scene.transcript,
       checked: !!scene.checked,
-      clips: scene.clips.map(c => ({src: c.src, start: c.start, end: c.end,
-                                    whole: c.whole, renderedSha: c.renderedSha || null})),
+      clips: scene.clips.map(c => ({src: c.src, start: c.start, end: c.end, whole: c.whole})),
     }))),
     sources: [...used].map(sha => {
       const src = sources.get(sha);
@@ -1467,7 +1536,7 @@ function locate(clips, t) {
   }
   return null;
 }
-const trimmed = (c, patch) => ({...c, ...patch, id: newClipId(), whole: false, renderedSha: null});
+const trimmed = (c, patch) => ({...c, ...patch, id: newClipId(), whole: false});
 // Split the clip under t in two. No-op too close to an existing edge.
 function splitAt(clips, t) {
   const hit = locate(clips, t);
@@ -1502,7 +1571,193 @@ function moveClip(clips, from, to) {
   return next;
 }
 const removeClip = (clips, i) => clips.filter((_, k) => k !== i);
+// Heard words are [text, start ms, end ms]; a word belongs to the side of a
+// cut holding its midpoint.
+const midOf = ([, start, end]) => (start + end) / 2;
+// What checks heard in WINDOWS of one source (edited clips), in the source's
+// ms: {words, covered}, `covered` the windows heard. A later cut inside ONE
+// of them then knows its words without a Check. Not across two: each was
+// heard alone, so a word split where they meet came back as two fragments,
+// and a clip spanning that edge (a split undone) would read them as words.
+function addHeardWindow(known, from, to, words) {
+  const kept = known ? known.words.filter(w => midOf(w) < from || midOf(w) >= to) : [];
+  const covered = [...(known ? known.covered : []).filter(([a, b]) => a < from || b > to), [from, to]]
+    .sort((x, y) => x[0] - y[0]);
+  return {covered, words: [...kept, ...words.map(([text, start, end]) => [text, start + from, end + from])]
+    .sort((x, y) => x[1] - y[1])};
+}
+const coversWindow = (known, from, to) => known.covered.some(([a, b]) => a <= from + 1 && b >= to - 1);
+// Each clip's heard words, `parts[k]` = {text, words, cutHead?, cutTail?} or
+// undefined (word times in ms of the clip). A cut through a word, right next
+// to the same word on the other side (a narrator restarting from it: "which
+// part of this. He can't tell which part of his code", cut from inside the
+// first "of" to the second), plays as ONE word. But each piece is heard on
+// its own: words worked out from the uncut transcript give each side its
+// copy, and a fresh check hears the earlier piece's last fragment as a word
+// or two of its own ("of the"), so the line read "of the of his code", a
+// retake that was never said. So where the next piece starts with a word
+// the earlier one has in its last moments, the earlier one's copy and
+// whatever was heard after it go (the later copy, when only it was cut).
+const SPLIT_GAP = 300;   // ms from the cut: "its last moments"
+function joinSplitWords(parts, clips) {
+  const same = (a, b) => tokenStream(a).map(t => t.canon).join(' ') === tokenStream(b).map(t => t.canon).join(' ');
+  const drop = (part, words) => ({...part, words, text: words.map(w => w[0]).join(' ')});
+  const out = parts.slice();
+  for (let k = 1; k < out.length; k++) {
+    const before = out[k - 1], after = out[k];
+    if (!before || !after || !before.words.length || !after.words.length) continue;
+    // Only where the next clip carries on the SAME take after the earlier one
+    // (a cut or a split inside it): where two takes meet, a repeat is real.
+    if (clips[k].src !== clips[k - 1].src || clips[k].start < clips[k - 1].end - 0.0005) continue;
+    const end = clipLen(clips[k - 1]) * 1000, first = after.words[0];
+    if (first[1] > SPLIT_GAP) continue;
+    let at = before.words.length - 1;
+    while (at >= 0 && end - before.words[at][2] <= SPLIT_GAP && !same(before.words[at][0], first[0])) at--;
+    if (at < 0 || end - before.words[at][2] > SPLIT_GAP) continue;
+    if (after.cutHead && !before.cutTail) out[k] = {...drop(after, after.words.slice(1)), cutHead: false};
+    else out[k - 1] = {...drop(before, before.words.slice(0, at)), cutTail: false};
+  }
+  return out;
+}
 // ------------------------------------------------------ end of clip model ---
+
+// ------------------------------------------------------------ pauses (pure) ---
+// "Shorten pauses": the long stretches without speech in a scene, found on
+// the level summary every source keeps (the one the waveform draws: what it
+// shows nothing for is no voice), and the cuts that bring each down to about
+// the asked length. Judged per source, against its own voice and background,
+// so a cleaned-up take and a raw attached file both work, even side by side.
+// Two lines: VOICE ends a pause; QUIET is where a cut may fall. A breath or
+// room noise between the two belongs to the pause and goes whole or stays
+// whole, never cut in half (an inhale before the first word kept 1.9 s of a
+// scene's opening when it counted as sound).
+const VOICE_OVER_FLOOR = 20;     // dB over the background: a step that is surely voice
+const VOICE_UNDER_SPEECH = 20;   // the voice line: this far under the speech level
+const QUIET_UNDER_SPEECH = 35;   // the quiet line: this far under it...
+const QUIET_OVER_FLOOR = 8;      // ...but this far over the background at least
+const QUIET_MIN_MARGIN = 15;     // speech closer than this to the quiet line: too noisy to tell
+const PAUSE_BLIP = 0.08;         // voice this short (a click, a lip smack) keeps a pause going
+const CUT_FOOTING = 4;           // steps of quiet a cut point stands on (20 ms)
+const EDGE_SHARE = 1 / 3;        // the scene's opening and closing pause: this share of a pause's
+                                 // minimum to count, and of its length to keep
+
+const stepLevel = (peaks, i) => 20 * Math.log10(Math.max(Math.abs(peaks.min[i]), Math.abs(peaks.max[i]), 1e-5));
+// A source's {quiet, voice} lines in dB, from its whole level summary. The
+// speech level is taken from the steps well clear of the background only,
+// so a take that is mostly silence (the narrator let it run) still has one.
+// Null when quiet cannot be told from speech: a background about as loud as
+// the voice, or no voice at all.
+function soundLines(peaks) {
+  const sorted = Float64Array.from(peaks.max, (_, i) => stepLevel(peaks, i)).sort();
+  const at = (list, share) => list[Math.min(list.length - 1, Math.floor(share * list.length))];
+  const floor = at(sorted, 0.1), voiceFrom = sorted.findIndex(level => level >= floor + VOICE_OVER_FLOOR);
+  if (voiceFrom < 0) return null;
+  const speech = at(sorted.subarray(voiceFrom), 0.95);
+  const quiet = Math.max(speech - QUIET_UNDER_SPEECH, floor + QUIET_OVER_FLOOR);
+  return speech - quiet >= QUIET_MIN_MARGIN ? {quiet, voice: Math.max(speech - VOICE_UNDER_SPEECH, quiet)} : null;
+}
+// Per summary step along the scene's clips: `quiet` and `voice` flags.
+// Steps are counted on the scene's clock, so no rounding piles up over many
+// clips. A clip that cannot be judged (no summary, or no lines) is voice
+// throughout; `unjudged` is how many such clips there were.
+const lineCache = new WeakMap();   // per level summary: a source never changes
+function sceneSound(clips, peaksOf, rate) {
+  const quiet = [], voice = [];
+  let at = 0, unjudged = 0;
+  for (const c of clips) {
+    const peaks = peaksOf(c.src);
+    if (peaks && !lineCache.has(peaks)) lineCache.set(peaks, soundLines(peaks));
+    const lines = peaks ? lineCache.get(peaks) : null;
+    if (!lines) unjudged++;
+    const from = Math.floor(c.start * rate);
+    const steps = Math.round((at + clipLen(c)) * rate) - Math.round(at * rate);
+    at += clipLen(c);
+    for (let k = 0; k < steps; k++) {
+      const level = lines ? stepLevel(peaks, Math.min(from + k, peaks.max.length - 1)) : 0;
+      quiet.push(!!lines && level < lines.quiet);
+      voice.push(!lines || level >= lines.voice);
+    }
+  }
+  return {quiet, voice, unjudged};
+}
+// The stretches without voice of `minPause` seconds or more, as {start,
+// end, edge} in scene seconds; `edge` marks the one before the first voice
+// ('start') or after the last ('end'), which counts from EDGE_SHARE of
+// `minPause`.
+function findPauses(voiceSteps, rate, minPause) {
+  const voice = voiceSteps.slice(), n = voice.length;
+  const runs = want => {
+    const out = [];
+    for (let k = 0; k < n;) {
+      if (voice[k] !== want) { k++; continue; }
+      let j = k;
+      while (j < n && voice[j] === want) j++;
+      out.push([k, j]);
+      k = j;
+    }
+    return out;
+  };
+  for (const [a, b] of runs(true))
+    if (a > 0 && b < n && b - a < PAUSE_BLIP * rate) voice.fill(false, a, b);
+  const pauses = [];
+  for (const [a, b] of runs(false)) {
+    if (a === 0 && b === n) continue;   // no voice at all: nothing to tighten
+    const edge = a === 0 ? 'start' : b === n ? 'end' : null;
+    if ((b - a) / rate >= (edge ? minPause * EDGE_SHARE : minPause))
+      pauses.push({start: a / rate, end: b / rate, edge});
+  }
+  return pauses;
+}
+// Speech the check may have skipped: the speech service once folded a
+// narrator's whole restart into the word before it ("cheater." over 3 s),
+// so the retake went unseen. A heard word that long, holding a pause and
+// then more voice, is flagged: true when the voice steps between scene
+// seconds `a` and `b` show that.
+const SKIP_WORD = 1.5;    // s: a heard word at least this long is looked at
+const SKIP_PAUSE = 0.25;  // s without voice inside it...
+const SKIP_SOUND = 0.5;   // ...then this much voice after it
+function speechAfterPause(voice, rate, a, b) {
+  let pauseRun = 0, sound = 0, paused = false;
+  for (let k = Math.round(a * rate); k < Math.min(voice.length, Math.round(b * rate)); k++) {
+    if (!voice[k]) {
+      if (++pauseRun >= SKIP_PAUSE * rate) { paused = true; sound = 0; }
+    } else {
+      pauseRun = 0;
+      if (paused && ++sound >= SKIP_SOUND * rate) return true;
+    }
+  }
+  return false;
+}
+// Each pause gets its own length, `goal` ± `variation` (a share; `random`
+// in [0, 1)), EDGE_SHARE of it at the scene's start and end, and keeps the shorter
+// of that and what it had. Between voices the MIDDLE goes, so the end of one
+// word and the run-up to the next stay whole; at the edges, the part away
+// from the speech goes. A cut point that lands in a breath or noise moves
+// out of it (the cut shrinks), onto `quiet` steps.
+function shortenPauses(clips, pauses, goal, variation, random, quiet, rate) {
+  const solid = k => quiet.slice(k, k + CUT_FOOTING).length === CUT_FOOTING &&
+                     quiet.slice(k, k + CUT_FOOTING).every(Boolean);
+  const cuts = [];
+  for (const {start, end, edge} of pauses) {
+    const keep = Math.min(end - start, goal * (1 + variation * (2 * random() - 1)) * (edge ? EDGE_SHARE : 1));
+    let [a, b] = edge === 'start' ? [start, end - keep] : edge === 'end' ? [start + keep, end]
+               : [start + keep / 2, end - keep / 2];
+    if (edge !== 'start') {
+      let k = Math.round(a * rate);
+      while (k < b * rate && !solid(k)) k++;
+      a = k / rate;
+    }
+    if (edge !== 'end') {
+      let k = Math.round(b * rate);
+      while (k > a * rate && !solid(k - CUT_FOOTING)) k--;
+      b = k / rate;
+    }
+    if (b - a >= MIN_CLIP) cuts.push([a, b]);
+  }
+  // The last stretch first, so each earlier one's scene times still hold.
+  const out = cuts.reduceRight((list, [a, b]) => cutRange(list, a, b), clips);
+  return {clips: out, count: cuts.length, removed: sceneLength(clips) - sceneLength(out)};
+}
 
 // ------------------------------------------------------- camera model (pure) ---
 // Video takes. A crop is [x, y, w, h] in fractions of the camera frame, so it
@@ -1589,6 +1844,19 @@ const hexRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 // A take's camera setup, as it travels in the return zip. '' when valid,
 // else what is wrong with it.
+// Whether a camera frame (RGBA pixels, a small copy) brings a new picture
+// or repeats the last one. Some webcams send 30 frames a second but repeat
+// each picture 2-3 times, mostly for lack of light (a dubber's camera did,
+// in the station and in OBS alike): the face-cam then looks choppy. A
+// repeat is the same picture to the bit; any new exposure differs at least
+// by the sensor's noise.
+const SAME_PICTURE = 0.05;   // mean difference per colour value, out of 255
+function newPicture(before, after) {
+  let sum = 0;
+  for (let i = 0; i < after.length; i += 4)
+    sum += Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
+  return sum / (after.length / 4 * 3) >= SAME_PICTURE;
+}
 function validSetup(setup) {
   const crop = setup && setup.crop;
   if (!Array.isArray(crop) || crop.length !== 4 || crop.some(v => typeof v !== 'number' || !(v >= 0)) ||
@@ -1645,7 +1913,7 @@ async function registerSource(blob, name, {recorded = false, sha = null, duratio
   return src;
 }
 const wholeClip = src => ({id: newClipId(), src: src.sha256, start: 0, end: src.duration,
-                           whole: true, renderedSha: null});
+                           whole: true});
 
 // ------------------------------------------------------- video return (pure) ---
 // A video job's zip (dubbing-return/3). The page never cuts video: each take
@@ -1864,18 +2132,23 @@ const FADE = 0.008;   // at every edited edge, in preview and render: no clicks
 // A clip as a real file. A whole clip IS its source (the original bytes ship
 // untouched); an edited one is rendered once and memoized by its window.
 const rendered = new Map();
+// What a clip's audio is known as: a whole clip, its source's hash; an
+// edited one, its window (its render is deterministic, so the window says
+// exactly what it sounds like, with no render needed to know it).
+const clipKey = clip => clip.whole ? clip.src
+  : 'window:' + clip.src + ':' + clip.start.toFixed(4) + ':' + clip.end.toFixed(4);
 function materialize(clip) {
   const src = sources.get(clip.src);
   if (clip.whole)
     return Promise.resolve({blob: src.blob, sha256: src.sha256, ext: extOf(src.name)});
-  const key = clip.src + ':' + clip.start.toFixed(4) + ':' + clip.end.toFixed(4);
+  const key = clipKey(clip);
   if (!rendered.has(key)) {
     rendered.set(key, renderClip(src, clip).catch(error => {
       rendered.delete(key);
       throw error;
     }));
   }
-  return rendered.get(key).then(result => { clip.renderedSha = result.sha256; return result; });
+  return rendered.get(key);
 }
 async function renderClip(src, clip) {
   const length = clipLen(clip);
@@ -1933,6 +2206,22 @@ async function processTake(recording) {
     const buffer = await audioCtx().decodeAudioData(await recording.arrayBuffer());
     return new Blob([encodeWav(buffer.getChannelData(0), buffer.sampleRate)], {type: 'audio/wav'});
   }
+}
+
+// MediaRecorder writes its file as a stream, with no index of where each
+// moment sits: the floating preview could not jump inside a long take (on a
+// real 2-min take no seek ever finished; with the index, 50-100 ms). Written
+// again with one (stream copy: picture and sound untouched, ~1 s for 2 min).
+// A take it fails on is kept as recorded: it still plays, from its start.
+async function withIndex(recording) {
+  const ext = recording.type.startsWith('video/x-matroska') ? '.mkv'
+            : recording.type.startsWith('video/webm') ? '.webm' : null;
+  if (!ext) return recording;   // an MP4 carries its index already
+  try {
+    const data = await ffRun({take: recording}, ['-i', '{take}', '-map', '0', '-c', 'copy',
+                                                '-cues_to_front', '1', '{out}'], ext);
+    return new Blob([data], {type: recording.type});
+  } catch (error) { return recording; }
 }
 
 // PCM → 16-bit WAV.
@@ -2231,7 +2520,8 @@ async function stopRecording() {
     const number = Math.max(0, ...taken) + 1;
     // The recording itself is the take's video (its own copy of the raw mic
     // rides along, unused).
-    const video = take.setup ? {blob: recording, type: take.type, setup: take.setup, frame: take.frame} : null;
+    const video = take.setup ? {blob: await withIndex(recording), type: take.type, setup: take.setup,
+                                frame: take.frame} : null;
     const src = await registerSource(
       blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true, video});
     await decodeSource(src).catch(() => {});
@@ -2466,15 +2756,18 @@ function aiAlpha(canvas) {
   result.close();
   return alpha;
 }
+const cutsBackground = setup => {
+  const bg = setup.background || {mode: 'none'};
+  return bg.mode === 'ai' || (bg.mode === 'green' && !!(bg.colors && bg.colors.length));
+};
 function drawFacecam(canvas, media, setup) {
   const ctx = canvas.getContext('2d', {willReadFrequently: true});
   const vw = media && media.videoWidth, vh = media && media.videoHeight;
   if (!vw || !vh) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }
   const [x, y, w, h] = setup.crop;
   ctx.drawImage(media, x * vw, y * vh, w * vw, h * vh, 0, 0, canvas.width, canvas.height);
-  const bg = setup.background || {mode: 'none'};
-  const green = bg.mode === 'green' && bg.colors && bg.colors.length;
-  if (!green && bg.mode !== 'ai') return;
+  if (!cutsBackground(setup)) return;
+  const bg = setup.background, green = bg.mode === 'green';
   let alpha = null, keys = null;
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height), d = img.data;
   if (green) {
@@ -2536,13 +2829,15 @@ function updateFloat() {
     closeCamera();
   }
 }
+// The background-removal preview runs on the page itself (34 ms a frame at
+// 1080p, half the page's time at 15 a second): never while recording, and
+// at this pace otherwise. Without it the face-cam is the video, cropped by
+// CSS (`showPlain`), which costs the page nothing per frame.
+const CUTOUT_EVERY = 100;   // ms between background-removal preview frames
 function floatTick(now) {
   float.raf = requestAnimationFrame(floatTick);
   if (!float.saved && !float.drag) placeFloat();
   if ($('camFloat').classList.contains('folded') || now - float.last < 66) return;
-  float.last = now;
-  const canvas = $('camFloatCanvas');
-  sizeFacecam(canvas, 320);
   let media = cam.video, setup = currentSetup(), tag = recorder.phase === 'recording' ? '● REC' : 'Camera';
   const playing = player.playing && current && player.scene === current;
   const hit = playing && locate(current.clips, playheadNow());
@@ -2555,8 +2850,25 @@ function floatTick(now) {
     setup = src.video.setup;
     tag = stem(src.name);
   } else if (float.take && !float.take.paused) float.take.pause();
-  drawFacecam(canvas, media, setup);
   $('camFloatTag').textContent = tag;
+  const plain = recorder.phase === 'recording' || !cutsBackground(setup);
+  $('camFloat').classList.toggle('plain', plain);
+  if (plain) { float.last = now; showPlain(media, setup.crop); return; }
+  if (now - float.last < CUTOUT_EVERY) return;
+  float.last = now;
+  const canvas = $('camFloatCanvas');
+  sizeFacecam(canvas, 320);
+  drawFacecam(canvas, media, setup);
+}
+// The crop as CSS: the video sized so the crop fills the box (its shape is
+// the face-cam's, so the video keeps its own) and shifted to the crop.
+function showPlain(media, [x, y, w, h]) {
+  if (!media) return;   // the camera is still starting
+  const box = $('camPlain');
+  box.style.aspectRatio = String(jobAspect() || 1);
+  if (box.firstChild !== media) box.replaceChildren(media);
+  Object.assign(media.style, {width: 100 / w + '%', height: 100 / h + '%',
+                              left: -100 * x / w + '%', top: -100 * y / h + '%'});
 }
 // Where the narrator dragged it, remembered; until then bottom right, riding
 // just above the audio dock (whose height changes with the scene and folds).
@@ -2625,6 +2937,7 @@ async function openCameraSetup() {
   $('camApplyRow').hidden = !takes;
   $('camApplyHint').textContent = takes + ' take(s) recorded so far keep their own setup unless this is on.';
   $('cameraLayer').hidden = false;
+  pictureRate.stream = null;   // measured afresh, from the next frames
   paintCameraSetup();
   try { await openCamera(); } catch (error) { if (error.message !== SUPERSEDED) banner(cameraError(error)); }
   if ($('cameraLayer').hidden) return;   // cancelled while the camera started
@@ -2667,8 +2980,46 @@ function paintCameraSetup() {
   }
   $('camStage').classList.toggle('picking', camEdit.picking);
 }
+// How many NEW pictures a second the camera sends (`newPicture`), over the
+// last few seconds, sampled on every screen frame. A busy page samples less
+// often than the camera sends; then nearly every sample is new and the count
+// only says "at least that", so it warns only when repeats were actually
+// seen (a camera repeating pictures shows them at any sampling rate).
+const RATE_WINDOW = 3000;   // ms
+const RATE_SMOOTH = 20;     // new pictures a second below which the setup warns
+const RATE_REPEATS = 0.25;  // ...and only when at least this share of samples repeated
+const pictureRate = {stream: null, since: 0, prev: null, samples: [], changes: [], canvas: null, shown: ''};
+function measurePictureRate(now) {
+  const video = cam.video, r = pictureRate;
+  if (!video || !video.videoWidth) return;
+  if (r.stream !== cam.stream) Object.assign(r, {stream: cam.stream, since: now, prev: null, samples: [], changes: []});
+  if (!r.canvas) r.canvas = Object.assign(document.createElement('canvas'), {width: 160, height: 90});
+  const ctx = r.canvas.getContext('2d', {willReadFrequently: true});
+  ctx.drawImage(video, 0, 0, 160, 90);
+  const pixels = ctx.getImageData(0, 0, 160, 90).data;
+  if (r.prev) {
+    r.samples.push(now);
+    if (newPicture(r.prev, pixels)) r.changes.push(now);
+  }
+  r.prev = pixels;
+  r.samples = r.samples.filter(t => now - t < RATE_WINDOW);
+  r.changes = r.changes.filter(t => now - t < RATE_WINDOW);
+  const perSecond = Math.round(r.changes.length * 1000 / RATE_WINDOW);
+  const repeats = 1 - r.changes.length / Math.max(1, r.samples.length);
+  const text = now - r.since < RATE_WINDOW ? 'Checking how smooth the camera is…'
+    : perSecond >= RATE_SMOOTH || repeats < RATE_REPEATS ? 'The camera looks smooth.'
+    : 'Choppy: the camera sends only about ' + perSecond + ' new pictures a second, so the face-cam ' +
+      'will look like it freezes. More light on your face usually fixes it; also check the ' +
+      "camera's own settings (low-light mode off, 30 frames a second).";
+  if (text === r.shown) return;
+  r.shown = text;
+  const low = text.startsWith('Choppy');
+  $('camRate').className = 'cam-note' + (low ? ' warn' : '');
+  $('camRate').replaceChildren(...(low ? [icon('warn', 'sm')] : []), h('span', {text}));
+}
 function cameraSetupTick(now) {
   camEdit.raf = requestAnimationFrame(cameraSetupTick);
+  measurePictureRate(now);
   if (now - camEdit.last < 50) return;
   camEdit.last = now;
   const video = cam.video, canvas = $('camCanvas');
@@ -2861,12 +3212,14 @@ async function loadDraftFile(file) {
     loadJobObject(JSON.parse(await jobEntry.getData(new zip.TextWriter())), false);
     const takes = parsed.format === RETURN_V3 ? await loadTakes(parsed, byName) : null;
     const byProject = new Map((parsed.items || []).map(item => [item.project, item]));
-    setStatus('Opening your saved work…');
+    const total = job.items.reduce((n, item, i) => n + (byProject.has(item.project) ? state[i].length : 0), 0);
+    let done = 0;
     for (let i = 0; i < job.items.length; i++) {
       const saved = byProject.get(job.items[i].project);
       if (!saved) continue;
       const scenes = new Map((saved.scenes || []).map(scene => [scene.index, scene]));
       for (const scene of state[i]) {
+        busy('Opening your saved work: restoring scene ' + (++done) + ' of ' + total + '…');
         const from = scenes.get(scene.index);
         if (!from) continue;
         if (typeof from.text === 'string') scene.text = from.text;
@@ -2901,7 +3254,7 @@ async function loadDraftFile(file) {
             stt.parts.every((sha, k) => scene.clips[k] && scene.clips[k].src === sha);
         scene.transcript = keep && sameParts ? (stt.transcript || '') : '';
         // Each part's word timings ride along too; filed in the transcript
-        // cache under the part's hash, they tie the diff to the audio again
+        // cache under each clip's key, they tie the diff to the audio again
         // on any machine (and make a re-check free).
         if (scene.transcript && Array.isArray(stt.words) && stt.words.length === scene.clips.length)
           await fileHeardWords(scene.clips, stt.words);
@@ -2915,14 +3268,18 @@ async function loadDraftFile(file) {
     showScene(firstOpenScene());
     updateProgress();
     autosave();   // the zip is now the truth for this job id
-  } finally { await reader.close(); }
+  } finally {
+    busy(null);
+    await reader.close();
+  }
 }
 
 // A video zip's takes: each audio file comes back as its source, its camera
 // video and setup with it. Map: take file -> source.
 async function loadTakes(parsed, byName) {
-  const takes = new Map();
-  for (const take of parsed.takes || []) {
+  const takes = new Map(), all = parsed.takes || [];
+  for (const [n, take] of all.entries()) {
+    busy('Opening your saved work: reading recording ' + (n + 1) + ' of ' + all.length + '…');
     const audio = byName.get(take.file), video = take.video && byName.get(take.video.file);
     if (!audio || (take.video && !video)) {
       banner('The saved zip is missing ' + (take.name || take.file) + ' or its video. ' +
@@ -2951,26 +3308,24 @@ async function restoreWindows(scene, from, takes) {
     if (!src) { lost = true; continue; }
     const whole = win.start <= 0.0005 && Math.abs(win.end - src.duration) <= 0.0005;
     scene.clips.push({id: newClipId(), src: src.sha256, start: win.start,
-                      end: whole ? src.duration : win.end, whole, renderedSha: null});
+                      end: whole ? src.duration : win.end, whole});
   }
   return lost;
 }
 const sameWindows = (heard, clips) => Array.isArray(heard) && Array.isArray(clips) &&
   heard.length === clips.length &&
   heard.every((w, k) => w.take === clips[k].take && w.start === clips[k].start && w.end === clips[k].end);
-// Timed words that came back with a check, filed where heardOf looks: a
-// whole clip under its source, a window under its own rendered audio (the
-// render is deterministic, so a Check later finds the same hash). Never a
-// window's words under the whole take: that entry would claim to be the
-// take's full transcript, and every other clip of it would believe it.
+// Timed words that came back with a check, filed where heardOf looks: under
+// the clip's own key (`clipKey`: no render needed, which made reopening a
+// big zip render every edited clip first) and among its source's heard
+// windows. Never a window's words as the whole take's: that entry would
+// claim to be the take's full transcript, and every other clip of it would
+// believe it.
 async function fileHeardWords(clips, perClip) {
   for (const [k, words] of perClip.entries()) {
-    let sha = clips[k].src;
-    if (!clips[k].whole) {
-      try { sha = (await materialize(clips[k])).sha256; } catch (error) { continue; }
-    }
-    if (await cacheGet(sha)) continue;   // a real check of this exact audio wins
-    await cachePut(sha, {text: words.map(w => w[0]).join(' '), words});
+    const key = clipKey(clips[k]), own = await cacheGet(key);   // a real check of this exact audio wins
+    if (!own) await cachePut(key, {text: words.map(w => w[0]).join(' '), words});
+    await fileHeardWindow(clips[k], own || {words});
   }
 }
 
@@ -2979,26 +3334,36 @@ async function fileHeardWords(clips, perClip) {
 // `checkScene`): its verdict no longer describes what is on screen.
 const abandon = scene => { scene.run = (scene.run || 0) + 1; };
 
-// The file a clip would ship as, if already known without rendering: a whole
-// clip IS its source; an edited one is known once it has been rendered.
-const knownSha = clip => clip.whole ? clip.src : clip.renderedSha;
-
 // What a clip says, as {text, words}, without asking the speech service: its
 // own transcript when this exact audio was heard before (cached by hash), or
 // else its SOURCE's words that fall inside the clip's window, re-timed to the
 // clip. A split or a cut then keeps its verdict for free. A word straddling
-// a cut belongs to the side holding its midpoint. undefined when neither is
-// known: only a Check (the narrator's go-ahead to spend) can tell.
+// a cut belongs to the side holding its midpoint (`cutHead`/`cutTail` say
+// one did; `heardOfScene` keeps a word split across a cut once). undefined
+// when neither is known: only a Check (the narrator's go-ahead to spend) can
+// tell.
 async function heardOf(clip) {
-  const sha = knownSha(clip);
-  const own = sha ? await cacheGet(sha) : undefined;
+  const own = await cacheGet(clipKey(clip));
   if (own) return own;
-  const source = await cacheGet(clip.src);
-  if (!source) return undefined;
   const from = clip.start * 1000, to = clip.end * 1000;
-  const words = source.words.filter(([, start, end]) => (start + end) / 2 >= from && (start + end) / 2 < to)
-    .map(([text, start, end]) => [text, Math.max(0, start - from), Math.min(to, end) - from]);
-  return {text: words.map(w => w[0]).join(' '), words};
+  let source = await cacheGet(clip.src);
+  if (!source) {
+    // Else the windows checks heard of it (a scene checked after it was
+    // edited): enough when they cover this clip.
+    const windows = await heardWindowsGet(clip.src);
+    if (!windows || !coversWindow(windows, from, to)) return undefined;
+    source = windows;
+  }
+  const inside = source.words.filter(w => midOf(w) >= from && midOf(w) < to);
+  const words = inside.map(([text, start, end]) => [text, Math.max(0, start - from), Math.min(to, end) - from]);
+  return {text: words.map(w => w[0]).join(' '), words,
+          cutHead: inside.length > 0 && inside[0][1] < from, cutTail: inside.length > 0 && inside[inside.length - 1][2] > to};
+}
+// heardOf for every clip of a scene, words split by a cut counted once.
+async function heardOfScene(clips) {
+  const parts = [];
+  for (const clip of clips) parts.push(await heardOf(clip));
+  return joinSplitWords(parts, clips);
 }
 
 // A scene whose clips are ALL heard already has its answer locally: rebuild
@@ -3011,11 +3376,8 @@ async function heardOf(clip) {
 // a verdict; the scene stays unchecked until a Check hears the new audio.
 async function rehydrateVerdict(scene) {
   if (scene.transcript || !scene.clips.length) return false;
-  const clips = scene.clips, heard = [];
-  for (const clip of clips) {
-    const known = await heardOf(clip);
-    heard.push(known === undefined ? null : known.text);
-  }
+  const clips = scene.clips;
+  const heard = (await heardOfScene(clips)).map(known => known === undefined ? null : known.text);
   // Edited again while the cache was read (Undo held down): these words
   // belong to an arrangement that is gone; the newer edit's own rehydrate
   // answers for the clips on screen.
@@ -3158,6 +3520,97 @@ function deleteSelection(scene) {
   if (i >= 0) commit(scene, removeClip(scene.clips, i));
 }
 
+// The dialog's three numbers, remembered per browser: [name, pref, field,
+// default, lowest, highest].
+const PAUSE_FIELDS = [['min', 'pauses.min', 'pauseMin', 1.5, 0.2, 30], ['goal', 'pauses.goal', 'pauseGoal', 1.5, 0.1, 30],
+                      ['vary', 'pauses.vary', 'pauseVary', 20, 0, 90]];
+const pauseValue = (raw, fallback, low, high) => {
+  const typed = parseFloat(raw);
+  return clamp(Number.isFinite(typed) ? typed : fallback, low, high);
+};
+// {min, goal, vary}: the settings the dialog last applied.
+const pauseSettings = () => Object.fromEntries(PAUSE_FIELDS.map(([name, pref, , fallback, low, high]) =>
+  [name, pauseValue(prefs.get(pref, ''), fallback, low, high)]));
+let pausesFor = null;
+function openPauses(scene) {
+  if (!canEdit()) return;
+  pausesFor = scene;
+  const settings = pauseSettings();
+  for (const [name, , field] of PAUSE_FIELDS) $(field).value = settings[name];
+  $('pausesLayer').hidden = false;
+  $('pauseMin').focus();
+}
+function applyPausesDialog() {
+  for (const [, pref, field, fallback, low, high] of PAUSE_FIELDS)
+    prefs.set(pref, String(pauseValue($(field).value, fallback, low, high)));
+  closeLayer('pausesLayer');
+  shortenScenePauses(pausesFor, pauseSettings()).catch(say);
+}
+// What "Shorten pauses" would do to the scene's audio as it is: null when
+// its quiet cannot be judged at all. `random` picks each pause's length.
+// The scene's levels, per clip list (every edit makes a new one, and the
+// card redraws on every keystroke), again only when a source's level
+// summary has arrived since.
+const soundCache = new WeakMap();
+function soundOf(clips) {
+  // A restore fills a scene's (still empty) list in place: its length counts too.
+  const ready = clips.filter(c => sources.get(c.src).peaks).length, hit = soundCache.get(clips);
+  if (hit && hit.ready === ready && hit.length === clips.length) return hit.sound;
+  const sound = sceneSound(clips, sha => sources.get(sha).peaks, PEAK_RATE);
+  soundCache.set(clips, {ready, length: clips.length, sound});
+  return sound;
+}
+function plannedPauses(clips, {min, goal, vary}, random) {
+  const {quiet, voice, unjudged} = soundOf(clips);
+  if (unjudged === clips.length) return null;
+  const pauses = findPauses(voice, PEAK_RATE, min);
+  return {pauses, unjudged, ...shortenPauses(clips, pauses, goal, vary / 100, random, quiet, PEAK_RATE)};
+}
+async function shortenScenePauses(scene, settings) {
+  if (!canEdit()) return;
+  // A source's level summary comes with its decoding: done already for the
+  // waveform, unless the scene was just restored. One at a time, so only
+  // the decoded-audio cache's few buffers are ever held.
+  const before = scene.clips;
+  for (const src of new Set(before.map(c => sources.get(c.src))))
+    if (!src.peaks) await decodeSource(src).catch(() => null);
+  if (scene.clips !== before) { toast('The audio changed meanwhile: shorten the pauses again.'); return; }
+  const plan = plannedPauses(before, settings, Math.random);
+  if (!plan) {
+    banner('Could not tell the pauses in this scene from its speech: the background is about as ' +
+           'loud as the voice, there is no voice, or the audio cannot be read.');
+    return;
+  }
+  const {pauses, unjudged, clips, count, removed} = plan;
+  const skipped = unjudged ? ' ' + unjudged + ' clip(s) were left alone: their pauses cannot be ' +
+                             'told from their speech.' : '';
+  if (!count) {
+    toast((pauses.length ? 'The pauses in this scene are already that short.'
+                         : 'No pause in this scene is long enough to shorten.') + skipped);
+    return;
+  }
+  await commit(scene, clips);
+  toast('Shortened ' + count + (count === 1 ? ' pause' : ' pauses') + ', ' + removed.toFixed(1) +
+        ' s removed. Ctrl+Z undoes it.' + skipped);
+}
+// The card's suggestion, from the level summaries already at hand (never a
+// decode, it redraws as the narrator types). Counted at the LONGEST length
+// the variation allows, so it only shows what is sure to go, and a scene
+// just shortened never suggests itself again.
+const PAUSE_HINT_MIN = 0.3;   // seconds; less is not worth a row
+function pauseHint(scene) {
+  if (!scene.clips.length || ffmpegFailed) return null;
+  const plan = plannedPauses(scene.clips, pauseSettings(), () => 1 - 1e-9);
+  if (!plan || plan.removed < PAUSE_HINT_MIN) return null;
+  return h('div', {class: 'suggest'}, icon('squeeze', 'sm'),
+    h('span', {class: 'said'}, 'Long pauses: ',
+      h('b', {text: plan.count + (plan.count === 1 ? ' pause' : ' pauses') + ' could lose at least ' +
+                    plan.removed.toFixed(1) + ' s'})),
+    h('button', {class: 'btn sm', onclick: () => shortenScenePauses(scene, pauseSettings()).catch(say)},
+      icon('squeeze', 'sm'), 'Shorten them'),
+    h('button', {class: 'btn sm ghost', onclick: () => openPauses(scene)}, 'Settings…'));
+}
+
 // ------------------------------------------------------------ attaching ---
 async function addParts(scene, files) {
   // A whole recording session lands in one pick: sort the batch by name
@@ -3204,7 +3657,7 @@ async function addParts(scene, files) {
       }
       setStatus('Reading ' + file.name + '…');
       const src = await registerSource(blob, blob.name || file.name, {video});
-      decodeSource(src).then(() => { if (current === scene) redrawTimeline(); }).catch(() => {});
+      decodeInBackground(scene, src);
       added.push(wholeClip(src));
     } catch (error) { banner('Could not read "' + file.name + '": ' + (error.message || error)); }
   }
@@ -3232,8 +3685,16 @@ async function shrinkAttachedVideos() {
         const smaller = await extractAudio(new File([old.blob], old.name, {type: old.blob.type}));
         const src = await registerSource(smaller, smaller.name);
         if (old.video) src.video = old.video;
-        const heard = await cacheGet(old.sha256);
+        const heard = await cacheGet(old.sha256), windows = await heardWindowsGet(old.sha256);
         if (heard !== undefined) await cachePut(src.sha256, heard);
+        if (windows !== undefined) await heardWindowsPut(src.sha256, windows);
+        // An edited clip's own check is filed under its window, which names
+        // the source: refiled under the new one (the audio is the same).
+        for (const c of state.flat().flatMap(scene => scene.clips))
+          if (c.src === old.sha256 && !c.whole) {
+            const own = await cacheGet(clipKey(c));
+            if (own) await cachePut(clipKey({...c, src: src.sha256}), own);
+          }
         for (const scene of state.flat()) {
           if (!scene.clips.some(c => c.src === old.sha256)) continue;
           scene.clips = scene.clips.map(c => c.src !== old.sha256 ? c
@@ -3265,7 +3726,9 @@ function sttKey() {
   return key;
 }
 
-async function checkScene(scene) {
+// `fresh`: ids of clips to transcribe again even when their audio was heard
+// before (the speech service may have skipped words the first time).
+async function checkScene(scene, fresh = new Set()) {
   let key;
   try { key = sttKey(); } catch (error) { say(error); return; }
   if (!scene.clips.length) { invalidate(scene); return; }
@@ -3281,19 +3744,21 @@ async function checkScene(scene) {
     const language = job.locale.split('-')[0];
     const heard = [];
     for (const clip of clips) {
-      const part = await materialize(clip);   // an edited clip renders first
-      if (scene.run !== run) return;
-      let got = await cacheGet(part.sha256);
+      let got = fresh.has(clip.id) ? undefined : await cacheGet(clipKey(clip));
       if (scene.run !== run) return;
       if (got === undefined) {
+        const part = await materialize(clip);   // an edited clip renders first
+        if (scene.run !== run) return;
         got = await sttTranscript(part.blob, key, language);
         if (scene.run !== run) return;
-        await cachePut(part.sha256, got);
+        await cachePut(clipKey(clip), got);
       }
-      heard.push(got.text);
+      await fileHeardWindow(clip, got);
+      heard.push(got);
     }
     if (scene.run !== run) return;
-    scene.transcript = heard.join(' ').trim();
+    // Pieces are heard one by one: a word a cut split shows on both sides.
+    scene.transcript = joinSplitWords(heard, clips).map(part => part.text).join(' ').trim();
     scene.partial = null;
     scene.checked = true;   // a live check backs this verdict (vs a restored one)
     const score = analyzeScene(text, scene.transcript);
@@ -3404,6 +3869,11 @@ const isDone = scene => (scene.status === 'ok' || scene.status === 'override') &
   scene.text.trim() !== '' && scene.clips.length > 0;
 
 const setStatus = text => { $('status').textContent = text; };
+// The top line for a long job, `text` null to hide it.
+function busy(text) {
+  $('busy').hidden = !text;
+  if (text) $('busy').replaceChildren(statusIcon('working'), h('span', {text}));
+}
 function updateProgress() {
   if (!job) return;
   const scenes = state.flat();
@@ -3438,12 +3908,12 @@ async function materializeAll() {
   for (const scenes of state) {
     const row = [];
     for (const scene of scenes) {
-      const parts = [];
-      for (const clip of scene.clips) {
+      const parts = [], heard = await heardOfScene(scene.clips);
+      for (const [k, clip] of scene.clips.entries()) {
         setStatus('Preparing audio ' + (++done) + ' of ' + total + '…');
         const part = await materialize(clip);
         const src = sources.get(clip.src);
-        parts.push({...part, name: stem(src.name) + part.ext, heard: await heardOf(clip)});
+        parts.push({...part, name: stem(src.name) + part.ext, heard: heard[k]});
       }
       row.push(parts);
     }
@@ -3545,13 +4015,8 @@ async function writeZip(draft, filename) {
 // diff to the audio. null for a scene not (fully) known.
 async function heardWordsOf(scene) {
   if (!scene.checked) return null;
-  const words = [];
-  for (const clip of scene.clips) {
-    const known = await heardOf(clip);
-    if (!known) return null;
-    words.push(known.words);
-  }
-  return words;
+  const parts = await heardOfScene(scene.clips);
+  return parts.includes(undefined) ? null : parts.map(known => known.words);
 }
 async function writeVideoZip(draft, filename, handle) {
   const heard = [];
@@ -3881,6 +4346,8 @@ function drawCheck(scene) {
         h('span', {style: 'left:' + (STT_OK * 100) + '%', text: 'pass ' + Math.round(STT_OK * 100) + '%'}),
         h('span', {style: 'left:' + (SIMILAR_ENOUGH * 100) + '%', text: Math.round(SIMILAR_ENOUGH * 100) + '%'})));
   }
+  const pauses = pauseHint(scene);
+  if (pauses) body.append(pauses);
   if (analysis) {
     if (analysis.missingChunk)
       body.append(h('div', {class: 'stt-warn'}, icon('warn', 'sm'),
@@ -3899,7 +4366,7 @@ function drawCheck(scene) {
       const toks = tokenStream(scene.transcript);
       const cutNow = prefs.flag('check.cutRetakes', true);
       for (const cut of retakes)
-        body.append(h('div', {class: 'retake'}, icon('warn', 'sm'),
+        body.append(h('div', {class: 'suggest'}, icon('warn', 'sm'),
           h('span', {class: 'said'}, 'Retake? Failed part: ',
             h('b', {text: toks.slice(cut.from, cut.to).map(t => t.display).filter(Boolean).join(' ')})),
           h('button', {class: 'btn sm', onclick: () => onRetake(scene, [cut], 'play')},
@@ -3907,7 +4374,7 @@ function drawCheck(scene) {
           h('button', {class: 'btn sm', onclick: () => onRetake(scene, [cut], cutNow ? 'cut' : 'select')},
             icon('scissors', 'sm'), cutNow ? 'Cut it' : 'Select it')));
       if (cutNow && retakes.length > 1)
-        body.append(h('div', {class: 'retake'}, h('span', {class: 'said'}),
+        body.append(h('div', {class: 'suggest'}, h('span', {class: 'said'}),
           h('button', {class: 'btn sm', onclick: () => onRetake(scene, retakes, 'cut')},
             icon('scissors', 'sm'), 'Cut all ' + retakes.length)));
     }
@@ -3965,7 +4432,7 @@ function drawCheck(scene) {
   if (actions.childElementCount) body.append(actions);
   card.replaceChildren(head, body);
   ui.words = [];
-  if (analysis) linkWords(scene, drawn, heard);
+  if (analysis) { linkWords(scene, drawn, heard); flagSkippedSpeech(scene, drawn); }
 }
 
 // ---------------------------------------------------- words ↔ audio ---
@@ -3975,9 +4442,9 @@ function drawCheck(scene) {
 // null when a transcript's timings are unknown, or when the counts disagree:
 // a wrong mapping would highlight the wrong words.
 async function heardTimings(scene, heard) {
-  const offsets = clipOffsets(scene.clips), out = [];
+  const offsets = clipOffsets(scene.clips), out = [], parts = await heardOfScene(scene.clips);
   for (const [k, clip] of scene.clips.entries()) {
-    const known = await heardOf(clip);
+    const known = parts[k];
     if (known) {
       for (const [text, start, end] of known.words)
         for (let n = tokenStream(text).length; n > 0; n--)
@@ -3988,6 +4455,31 @@ async function heardTimings(scene, heard) {
   return out.length === heardStream(heard).length ? out : null;
 }
 // Heard words become clickable (play from there) and follow playback.
+// The card's warning for speech the check may have skipped (see
+// `speechAfterPause`), with that stretch to play and a fresh check of its
+// clip: a second transcript of the same audio can come back complete.
+async function flagSkippedSpeech(scene, drawn) {
+  const parts = await heardOfScene(scene.clips);
+  if (drawn !== ui.checkDrawn) return;   // the card was redrawn meanwhile
+  const {voice} = soundOf(scene.clips);
+  const offsets = clipOffsets(scene.clips), body = ui.check.querySelector('.card-body');
+  parts.forEach((known, k) => {
+    const clipId = scene.clips[k].id;
+    for (const [, start, end] of known ? known.words : []) {
+      // Within its own clip: words filed from an older page could run past it.
+      const a = offsets[k] + start / 1000, b = offsets[k] + Math.min(end / 1000, clipLen(scene.clips[k]));
+      if (b - a < SKIP_WORD || !speechAfterPause(voice, PEAK_RATE, a, b)) continue;
+      body.insertBefore(h('div', {class: 'suggest'}, icon('warn', 'sm'),
+        h('span', {class: 'said'}, 'The check may have skipped speech at ', h('b', {text: preciseClock(a)}),
+          ': one heard word lasts ' + (b - a).toFixed(1) + ' s, with a pause and more speech inside it. ' +
+          'A repeat can hide there.'),
+        h('button', {class: 'btn sm', onclick: () => { scene.view.sel = null; playScene(scene, a, b); }},
+          icon('play', 'sm'), 'Play'),
+        h('button', {class: 'btn sm', onclick: () => checkScene(scene, new Set([clipId]))},
+          icon('listen', 'sm'), 'Check it again')), body.querySelector('.diff'));
+    }
+  });
+}
 async function linkWords(scene, drawn, heard) {
   const times = await heardTimings(scene, heard);
   if (!times || drawn !== ui.checkDrawn) return;   // the card was redrawn meanwhile
@@ -4012,9 +4504,9 @@ async function onRetake(scene, cuts, action) {
            'and cut it by hand.');
     return;
   }
+  if (action === 'play') { scene.view.sel = null; playScene(scene, ...retakePlayRange(times, cuts[0])); return; }
   const ranges = cuts.map(cut => retakeRange(times, cut));
   const [a, b] = ranges[0];
-  if (action === 'play') { scene.view.sel = null; playScene(scene, a, b); return; }
   scene.view.clipSel = null;   // or the card would keep a whole clip's words lit
   if (action === 'select') {
     scene.view.sel = [a, b];
@@ -4102,6 +4594,7 @@ function buildAudio(scene) {
       ui.playBtn, ui.time, sep(),
       tb('scissors', 'Split at the playhead, or around the selection (S)', () => splitHere(scene)),
       tb('trash', 'Delete the selection, or the selected clip (Delete)', () => deleteSelection(scene)),
+      tb('squeeze', 'Shorten long pauses (P)', () => openPauses(scene)),
       sep(),
       tb('undo', 'Undo (Ctrl+Z)', () => undo(scene)),
       tb('redo', 'Redo (Ctrl+Shift+Z)', () => redo(scene)),
@@ -4135,8 +4628,17 @@ function buildAudio(scene) {
   drawRecorder();
   updateTransport();
   // Waveforms need decoded audio; decode this scene's sources in the background.
-  for (const c of scene.clips)
-    decodeSource(sources.get(c.src)).then(() => { if (current === scene) redrawTimeline(); }).catch(() => {});
+  for (const src of new Set(scene.clips.map(c => sources.get(c.src)))) decodeInBackground(scene, src);
+}
+// When a decode lands, the waveform catches up, and so does the card's pause
+// suggestion when it brought a level summary the card was drawn without.
+function decodeInBackground(scene, src) {
+  const had = !!src.peaks;
+  decodeSource(src).then(() => {
+    if (current !== scene) return;
+    redrawTimeline();
+    if (!had && src.peaks) drawCheck(scene);
+  }).catch(() => {});
 }
 
 // A fold tab: toggles `cls` on `target`, remembered under `pref`, so the
@@ -4509,6 +5011,7 @@ function openSettings() {
   setTimeout(() => $('key').focus(), 50);
 }
 const closeLayer = id => { $(id).hidden = true; };
+const LAYERS = ['settingsLayer', 'keysLayer', 'pausesLayer'];   // the ones Escape and a scrim click close
 async function refreshDevices() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
   try {
@@ -4557,6 +5060,7 @@ const SHORTCUTS = [
   [['R'], null, 'Record a take / stop'], [['C'], null, 'Check this scene'],
   [['S'], null, 'Split at the playhead, or around the selection'],
   [['Del'], null, 'Delete the selection, or the selected clip'],
+  [['P'], null, 'Shorten long pauses'],
   [['Ctrl', 'Z'], null, 'Undo'], [['Ctrl', 'Shift', 'Z'], null, 'Redo'],
   [['+'], ['−'], 'Zoom the timeline'], [['Home'], null, 'Playhead to the start'],
   [['Esc'], null, 'Clear the selection / stop / close'], [['?'], null, 'This list'],
@@ -4573,9 +5077,10 @@ function onKey(event) {
     if (event.key === 'Escape') cancelCameraSetup();
     return;
   }
-  const layerOpen = !$('settingsLayer').hidden || !$('keysLayer').hidden;
+  const layerOpen = LAYERS.some(id => !$(id).hidden);
+  if (event.key === 'Enter' && event.target.matches('#pausesLayer input')) { applyPausesDialog(); return; }
   if (event.key === 'Escape') {
-    if (layerOpen) { closeLayer('settingsLayer'); closeLayer('keysLayer'); return; }
+    if (layerOpen) { LAYERS.forEach(closeLayer); return; }
     if (typing()) { document.activeElement.blur(); return; }
     if (current) {
       if (player.playing) stopPlayback();
@@ -4602,6 +5107,8 @@ function onKey(event) {
     case 'r': case 'R': event.preventDefault(); toggleRecording(scene); break;
     case 'c': case 'C': if (scene.clips.length) checkScene(scene); break;
     case 's': case 'S': if (scene.clips.length) splitHere(scene); break;
+    // Default prevented: the dialog's first field takes the focus mid-key.
+    case 'p': case 'P': if (scene.clips.length) { event.preventDefault(); openPauses(scene); } break;
     case 'Delete': case 'Backspace': event.preventDefault(); deleteSelection(scene); break;
     case '+': case '=': zoomBy(scene, 1.6); break;
     case '-': case '_': zoomBy(scene, 1 / 1.6); break;
@@ -4862,9 +5369,8 @@ function wire() {
   wireCameraSetup();
   wireFloat();
   paintMode();
-  document.querySelectorAll('[data-close]').forEach(el => {
-    el.onclick = () => { closeLayer('settingsLayer'); closeLayer('keysLayer'); };
-  });
+  document.querySelectorAll('[data-close]').forEach(el => { el.onclick = () => LAYERS.forEach(closeLayer); });
+  $('pausesApply').onclick = applyPausesDialog;
   $('moreBtn').onclick = event => { event.stopPropagation(); $('moreList').hidden = !$('moreList').hidden; };
   document.addEventListener('click', () => { $('moreList').hidden = true; });
   $('driveBtn').onclick = openDrive;
