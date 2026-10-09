@@ -267,9 +267,12 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rail-row.current .txt { color: var(--text); }
 .rail-row .meta { font-size: 11px; color: var(--text-3); white-space: nowrap; flex: none; }
-/* A scene with a suggestion on its card (long pauses, a retake). */
-.rail-row .hints { display: flex; gap: 2px; flex: none; color: var(--accent); }
+/* A scene with a suggestion on its card: long pauses (yellow, polish) or a
+   retake (red, words said twice). */
+.rail-row .hints { display: flex; gap: 2px; flex: none; }
 .rail-row .hints svg { width: 14px; height: 14px; }
+.rail-row .hints .warn { color: var(--warn); }
+.rail-row .hints .bad { color: var(--bad); }
 .st { width: 18px; height: 18px; flex: none; }
 .st.missing { color: var(--text-3); } .st.unchecked { color: var(--accent); } .st.working { color: var(--accent); }
 .st.ok { color: var(--ok); } .st.mismatch { color: var(--bad); } .st.override, .st.close { color: var(--warn); }
@@ -4661,9 +4664,10 @@ async function readAllLevels() {
 // too: long pauses to shorten, retakes to cut.
 function sceneSuggestions(scene) {
   const out = [];
-  if (suggestedPauses(scene)) out.push({icon: 'squeeze', text: 'long pauses to shorten'});
+  if (suggestedPauses(scene)) out.push({icon: 'squeeze', tone: 'warn', text: 'long pauses to shorten'});
   const retakes = VERDICTS.includes(scene.status) ? sceneRetakes(scene).length : 0;
-  if (retakes) out.push({icon: 'scissors', text: retakes === 1 ? 'a retake to cut' : retakes + ' retakes to cut'});
+  if (retakes) out.push({icon: 'scissors', tone: 'bad',
+                         text: retakes === 1 ? 'a retake to cut' : retakes + ' retakes to cut'});
   return out;
 }
 function paintRailRow(scene) {
@@ -4678,7 +4682,7 @@ function paintRailRow(scene) {
     statusIcon(scene.status),
     h('span', {class: 'num', text: scene.ending ? 'End' : String(scene.index + 1)}),
     h('span', {class: 'txt', text: preview(scene.text)}),
-    hints.length ? h('span', {class: 'hints'}, ...hints.map(hint => icon(hint.icon, 'sm'))) : null,
+    hints.length ? h('span', {class: 'hints'}, ...hints.map(hint => icon(hint.icon, 'sm ' + hint.tone))) : null,
     h('span', {class: 'meta', style: live ? 'color:var(--rec);font-weight:700' : '',
                text: live ? '● REC' : takes ? clock(sceneLength(scene.clips)) : ''})].filter(Boolean));
 }
