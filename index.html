@@ -40,6 +40,8 @@ try {
      file gets the next shade of its kind so neighbouring files never blend. */
   --file-0: #2f6fed; --file-1: #8b5cf6; --file-2: #0891d1;
   --take-0: #0c9a8a; --take-1: #65a30d; --take-2: #059669;
+  /* Passages said on camera */
+  --cam: #8b5cf6; --cam-soft: rgba(139,92,246,.20);
   --sel: rgba(47,111,237,.20); --playhead: #10141b;
   --shadow: 0 1px 2px rgba(15,23,42,.05), 0 2px 6px rgba(15,23,42,.06);
   --shadow-lg: 0 18px 48px rgba(15,23,42,.18);
@@ -62,6 +64,7 @@ try {
     --bad: #ff6d7c; --bad-soft: rgba(255,109,124,.14);
     --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
     --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
+    --cam: #b197fc; --cam-soft: rgba(177,151,252,.24);
     --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
     --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
     --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
@@ -79,6 +82,7 @@ try {
   --bad: #ff6d7c; --bad-soft: rgba(255,109,124,.14);
   --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
   --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
+  --cam: #b197fc; --cam-soft: rgba(177,151,252,.24);
   --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
   --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
   --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
@@ -311,17 +315,29 @@ kbd { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; border
 .card-body { padding: 16px; }
 
 /* The line IS the reading script: big, airy, readable from across a desk. */
-.reading textarea { display: block; width: 100%; border: 0; resize: none; background: transparent; outline: none;
-                    color: var(--text); font: 400 var(--read-size)/1.62 var(--read); padding: 22px 26px 26px;
-                    min-height: 140px; overflow: hidden; letter-spacing: .005em; }
+/* Passages said on camera are marked in it: a copy of the text with the same
+   box, font and wrapping sits behind the transparent textarea. */
+.reading textarea, .read-marks { font: 400 var(--read-size)/1.62 var(--read); padding: 22px 26px 26px;
+                                 letter-spacing: .005em; white-space: pre-wrap; overflow-wrap: break-word; }
+.reading textarea { position: relative; display: block; width: 100%; border: 0; resize: none; background: transparent;
+                    outline: none; color: var(--text); min-height: 140px; overflow: hidden; }
 .reading textarea::placeholder { color: var(--text-3); }
 .head-tools { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .invisible { visibility: hidden; }
 .reading:focus-within { box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); border-color: var(--accent); }
-/* Lines said on camera: read into the lens, not at the screen. */
-.on-camera { margin: 16px 26px 0; padding: 10px 14px; border-left: 3px solid var(--accent);
-             background: var(--accent-soft); border-radius: 6px; }
-.on-camera p { margin: 4px 0 0; font: 400 15px/1.45 var(--read); color: var(--text); }
+.read-wrap { position: relative; }
+.read-marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: transparent; }
+mark.cam { color: inherit; background: none; border-radius: 3px; }
+.read-marks mark.cam { color: transparent; }
+mark.cam.big { background: var(--cam-soft); box-shadow: 0 0 0 2px var(--cam-soft); }
+mark.cam.small { text-decoration: underline dashed var(--cam) 2px; text-underline-offset: .22em; }
+.cam-bar { border-top: 1px solid var(--line); padding: 10px 16px 12px; display: grid; gap: 8px; }
+.cam-status { font-size: 13px; color: var(--text-2); min-height: 1.4em; }
+.cam-warn { font-size: 13px; color: var(--warn); display: grid; gap: 4px; }
+.cam-warn:empty { display: none; }
+.cam-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cam-btn.on { border-color: var(--cam); box-shadow: 0 0 0 2px var(--cam-soft); }
+.cam-hint { font-size: 12.5px; color: var(--text-3); }
 
 /* The docked player: bar + timeline, pinned under the scrolling page */
 .dock { position: relative; flex: none; background: var(--panel); border-top: 1px solid var(--line);
@@ -827,7 +843,7 @@ const MEDIA_EXT = ['.mp3','.wav','.ogg','.m4a','.aac','.flac','.opus','.wma','.a
                    '.mp4','.webm','.mkv','.mov','.avi'];
 
 const $ = id => document.getElementById(id);
-let job = null;       // the loaded dubbing-job/2
+let job = null;       // the loaded dubbing-job/3
 let state = [];       // state[itemIdx][n] = scene state, same order as job.items[i].scenes
 let current = null;   // the scene on screen
 
@@ -1456,8 +1472,9 @@ async function sessionPutBlob(sha, blob) {
 }
 // Version 2: a scene is a list of CLIPS over stored sources, so edits survive
 // a reload. Only the sources blobs are stored (under 'part:<sha>'); rendered
-// clips are re-derived on demand.
-const SESSION_VERSION = 2;
+// clips are re-derived on demand. Version 3: a scene keeps its on-camera
+// passages, and the job is a dubbing-job/3.
+const SESSION_VERSION = 3;
 function sessionMeta() {
   const used = new Set(state.flat().flatMap(scene => scene.clips.map(c => c.src)));
   return {
@@ -1466,7 +1483,7 @@ function sessionMeta() {
     job,
     mode,
     scenes: state.map(scenes => scenes.map(scene => ({
-      index: scene.index, text: scene.text, status: scene.status,
+      index: scene.index, text: scene.text, camera: passagesOf(scene), status: scene.status,
       ratio: scene.ratio, transcript: scene.transcript,
       checked: !!scene.checked,
       clips: scene.clips.map(c => ({src: c.src, start: c.start, end: c.end, whole: c.whole})),
@@ -1524,8 +1541,9 @@ async function sweepStorage() {
 }
 
 // --------------------------------------------------------- text autosave ---
-// Text only: localStorage never carries the audio, and a verdict without the
-// audio it judged is worthless — the draft zip is what restores both.
+// Text (and its on-camera passages) only: localStorage never carries the
+// audio, and a verdict without the audio it judged is worthless — the draft
+// zip is what restores both.
 const autosaveKey = () => 'draft:' + job.job_id;
 let autosaveTimer = null;
 function autosave() {
@@ -1536,7 +1554,7 @@ function autosave() {
       state.forEach((scenes, i) => {
         saved.scenes[i] = {};
         scenes.forEach(scene => {
-          saved.scenes[i][scene.index] = {text: scene.text};
+          saved.scenes[i][scene.index] = {text: scene.text, camera: passagesOf(scene)};
         });
       });
       localStorage.setItem(autosaveKey(), JSON.stringify(saved));
@@ -1742,7 +1760,7 @@ function sceneSound(clips, peaksOf, rate) {
 // ('start') or after the last ('end'), which counts from EDGE_SHARE of
 // `minPause`. A word said softly flickers around the voice line in bits
 // shorter than a click: its bits are joined first (VOICE_GAP), or the click
-// rule takes them all and the word is a pause (Koori 14's "on your PC" went).
+// rule takes them all and the word is a pause (a real take's "on your PC" went).
 function findPauses(voiceSteps, rate, minPause) {
   const voice = voiceSteps.slice(), n = voice.length;
   const runs = want => {
@@ -2021,6 +2039,165 @@ function showingReel(reels, clip) {
 // Whether `next` carries on from `clip` in the same take: a split with no gap.
 const playsOn = (clip, next) => next.src === clip.src && next.start === clip.end;
 
+// ------------------------------------------------ on-camera passages (pure) ---
+// A video job's passages said on camera, big or small: `scene.camera` holds
+// them as character ranges {start, end, look} of `scene.text`, sorted and
+// never overlapping. The job, the return and every save carry them as the
+// words themselves ({text, look}), found again in the text on the way in.
+const LOOKS = ['big', 'small'];
+// Where the desktop ends a sentence (`word_ends_sentence`): . ? ! : ; … past
+// any closing quote or bracket, before a space or the end; 。！？ wherever
+// they are (Japanese has no spaces).
+const SENTENCE_END = /[.?!:;…]["'”’`´»)\]}」』]*(?=\s|$)|[。！？]["'”’`´»)\]}」』]*/gu;
+// [a, b) without the spaces at either end.
+function trimSpan(text, a, b) {
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  return [a, b];
+}
+// [a, b) widened to the whole sentences it touches, spaces trimmed (the
+// render widens a moment the same way); null for spaces only.
+function sentenceSpan(text, a, b) {
+  [a, b] = trimSpan(text, a, b);
+  if (a === b) return null;
+  let start = 0, end = text.length;
+  for (const match of text.matchAll(SENTENCE_END)) {
+    const stop = match.index + match[0].length;
+    if (stop <= a) start = stop;
+    else if (stop >= b) { end = stop; break; }
+  }
+  return trimSpan(text, start, end);
+}
+// The passages after the line changed from `before` to `after`, one edit
+// at a time: a passage after an edit moves; one an edit falls inside grows
+// or shrinks with it (typing right at an edge does not extend it); one it
+// overlaps keeps the words it left; one left with no words goes. The edits
+// are what differs between the texts' common start and common end, split
+// at the words they still share in between (`textEdits`): rewriting words
+// far apart (Rewrite to what was heard, Reset) is several small edits, never
+// one spanning every passage between them.
+function shiftRanges(ranges, before, after) {
+  const [head, tail] = commonEnds(before, after);
+  const edits = textEdits(before.slice(head, before.length - tail), after.slice(head, after.length - tail));
+  let text = before;
+  for (const [from, to, insert] of edits.reverse()) {   // the last first: offsets hold
+    const next = text.slice(0, head + from) + insert + text.slice(head + to);
+    ranges = shiftEdit(ranges, text, next);
+    text = next;
+  }
+  return ranges.filter(r => after.slice(r.start, r.end).trim());
+}
+// How many characters `before` and `after` share at their start and their end.
+function commonEnds(before, after) {
+  const most = Math.min(before.length, after.length);
+  let head = 0, tail = 0;
+  while (head < most && before[head] === after[head]) head++;
+  while (tail < most - head && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+  return [head, tail];
+}
+// The changes from `before` to `after` as [from, to, insert] on `before`, in
+// order: the words and spaces they share stay, the rest is edits.
+function textEdits(before, after) {
+  const a = before.match(/\S+|\s+/g) || [], b = after.match(/\S+|\s+/g) || [];
+  const lcs = Array.from({length: a.length + 1}, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const edits = [];
+  let i = 0, j = 0, at = 0, edit = null;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { at += a[i++].length; j++; edit = null; continue; }
+    if (!edit) edits.push(edit = [at, at, '']);
+    if (j < b.length && (i === a.length || lcs[i][j + 1] >= lcs[i + 1][j])) edit[2] += b[j++];
+    else { at += a[i++].length; edit[1] = at; }
+  }
+  return edits;
+}
+// One edit: what lies between `before` and `after`'s common start and end.
+function shiftEdit(ranges, before, after) {
+  const [head, tail] = commonEnds(before, after);
+  const from = head, to = before.length - tail, delta = after.length - before.length;
+  return ranges.map(({start, end, look}) => {
+    if (end <= from) return {start, end, look};
+    if (start >= to) return {start: start + delta, end: end + delta, look};
+    if (start <= from && to <= end) return {start, end: end + delta, look};
+    return start < from ? {start, end: from, look} : {start: to + delta, end: end + delta, look};
+  }).filter(r => r.end > r.start);
+}
+// [a, b) marked `look`, or on camera no more (null): what it covers of other
+// passages gives way, and neighbours of one look with only spaces between
+// become one passage.
+function setLook(text, ranges, a, b, look) {
+  const out = ranges.flatMap(r => [[r.start, Math.min(r.end, a)], [Math.max(r.start, b), r.end]]
+    .map(([start, end]) => trimSpan(text, start, end))
+    .filter(([start, end]) => end > start).map(([start, end]) => ({start, end, look: r.look})));
+  if (look) out.push({start: a, end: b, look});
+  return out.sort((x, y) => x.start - y.start).reduce((merged, r) => {
+    const last = merged[merged.length - 1];
+    if (last && last.look === r.look && !text.slice(last.end, r.start).trim()) last.end = r.end;
+    else merged.push({...r});
+    return merged;
+  }, []);
+}
+const passageAt = (ranges, at) => ranges.find(r => r.start <= at && at <= r.end) || null;
+// Passages whose words also come earlier in the scene: the desktop finds a
+// passage by its words, so the video marks that earlier place instead.
+const repeatedPassages = (text, ranges) => ranges.filter(r => text.indexOf(text.slice(r.start, r.end)) < r.start);
+// Saved passages back as ranges: each found word for word, in order, after
+// the one before; one the text no longer has is dropped.
+function rangesOf(text, passages) {
+  const out = [];
+  let from = 0;
+  for (const {text: words, look} of passages || []) {
+    const at = words && LOOKS.includes(look) ? text.indexOf(words, from) : -1;
+    if (at < 0) continue;
+    out.push({start: at, end: at + words.length, look});
+    from = at + words.length;
+  }
+  return out;
+}
+const passagesOf = scene => scene.camera.map(r => ({text: scene.text.slice(r.start, r.end), look: r.look}));
+// [on camera, all] of a text, counted in letters: Japanese has no spaces to
+// count words by, and letters follow the time spoken closely enough.
+const letters = text => (text.match(/[\p{L}\p{N}]/gu) || []).length;
+const cameraShare = (text, ranges) =>
+  [ranges.reduce((n, r) => n + letters(text.slice(r.start, r.end)), 0), letters(text)];
+// A video's [on, all] from its scenes' {letters, seconds}: a checked scene
+// by its recording (`seconds`, else null), the rest by letters at the pace
+// the checked ones were read; with none checked, letters throughout.
+function blendShares(shares) {
+  const timed = shares.filter(s => s.seconds);
+  const read = timed.reduce((n, s) => n + s.letters[1], 0);
+  const pace = read ? timed.reduce((n, s) => n + s.seconds[1], 0) / read : 1;
+  const part = k => shares.reduce((n, s) => n + (s.seconds ? s.seconds[k] : s.letters[k] * pace), 0);
+  return [part(0), part(1)];
+}
+const marksChanged = scene => JSON.stringify(passagesOf(scene)) !== JSON.stringify(scene.originalCamera);
+// The line's own undo: each step is the text AND its marks as they were
+// ({text, camera, sel}), so a mark is undone like an edit, and undoing an
+// edit brings back a mark the edit took. A run of typing is one step: the
+// same kind of edit (`run`, the input type), from where the last one left
+// the caret, each under TYPING_GAP_MS after the one before; a mark, Reset or
+// Rewrite (`run` null) is always a step of its own.
+const TYPING_GAP_MS = 1000;
+function recordStep(memo, state, run, caret, now) {
+  const continues = run && memo.run === run && memo.caret === caret && now - memo.at < TYPING_GAP_MS;
+  memo.run = run;
+  memo.at = now;
+  if (continues) return;
+  memo.undo.push(state);
+  memo.redo = [];
+}
+// The step to go back (or forward) to, the state it leaves saved the other
+// way; null when there is none.
+function takeStep(memo, state, back) {
+  const step = (back ? memo.undo : memo.redo).pop();
+  if (!step) return null;
+  (back ? memo.redo : memo.undo).push(state);
+  memo.run = null;
+  return step;
+}
+
 // ---------------------------------------------------------------- sources ---
 // Every audio file this page holds, by sha256: attached files, recorded
 // takes, parts pulled out of a draft. Immutable — clips only point at them.
@@ -2107,6 +2284,9 @@ function videoReturn(job, state, sources, draft, heardWords) {
         return {
           index: scene.index,
           text: scene.text,
+          // The passages said on camera, word for word as the text has them:
+          // the desktop renders exactly these.
+          camera: passagesOf(scene),
           clips: scene.clips.map(windowOf),
           // As in dubbing-return/2, the transcript is the evidence and the
           // windows it was heard from are what it is bound to.
@@ -2764,6 +2944,7 @@ function paintMode() {
     : 'Camera, quality, framing and background for video takes.';
   updateFloat();
   drawRecorder();
+  if (ui.marks && current) paintPassages(current);   // the marks are for video only
 }
 
 // Switching keeps what can be kept and asks before anything is lost: to audio
@@ -3519,8 +3700,11 @@ function newState() {
     // Carried here because every resume path (autosave, draft, session) starts
     // from newState() and merges only text and audio back into it.
     ending: !!scene.ending,
-    // Lines to say into the lens rather than at the screen (may be absent).
-    onCamera: scene.on_camera || [],
+    // Passages to say into the lens, as the job marked them (may be absent);
+    // `originalCamera` tells the narrator's own marks from the job's.
+    camera: rangesOf(scene.text, scene.on_camera),
+    originalCamera: scene.on_camera || [],
+    lineHistory: {undo: [], redo: [], run: null, caret: -1, at: 0},   // see recordStep
     status: 'missing', ratio: 0, transcript: '', checked: false,
     partial: null,   // heard parts, null where not transcribed yet (rehydrateVerdict)
     history: {undo: [], redo: []},
@@ -3528,23 +3712,36 @@ function newState() {
   })));
 }
 
+// Words saved by an earlier visit ({text, camera}: the autosave, the session,
+// a draft zip) with their passages; a save without any (an audio-only draft)
+// keeps the job's, wherever the text still has them word for word.
+function restoreText(scene, saved) {
+  const passages = Array.isArray(saved.camera) ? saved.camera : passagesOf(scene);
+  scene.text = saved.text;
+  scene.camera = rangesOf(scene.text, passages);
+}
+
 function loadJobObject(parsed, mergeAutosave) {
-  // A job from a FUTURE tool version (a different dubbing-job/N — e.g. a
-  // later footage mode) must fail with "update this page", never be
-  // half-read as if it were this one.
+  // A job from another tool version must fail with what to do about it,
+  // never be half-read as if it were this one: an older one (its on-camera
+  // passages had no looks) is exported again, a newer one needs this page
+  // updated.
   if (parsed && typeof parsed.format === 'string' &&
-      parsed.format.startsWith('dubbing-job/') && parsed.format !== 'dubbing-job/2')
-    throw new Error('This job (' + parsed.format + ') needs a newer version ' +
-                    'of this page. Ask for the updated site link.');
-  if (!parsed || parsed.format !== 'dubbing-job/2')
-    throw new Error('That file is not a dubbing job (expected format "dubbing-job/2").');
+      parsed.format.startsWith('dubbing-job/') && parsed.format !== 'dubbing-job/3')
+    throw new Error(parseInt(parsed.format.split('/')[1], 10) < 3
+      ? 'This job (' + parsed.format + ') was exported by an older version of the desktop ' +
+        'tool. Ask for the job to be exported again.'
+      : 'This job (' + parsed.format + ') needs a newer version of this page. ' +
+        'Ask for the updated site link.');
+  if (!parsed || parsed.format !== 'dubbing-job/3')
+    throw new Error('That file is not a dubbing job (expected format "dubbing-job/3").');
   job = parsed;
   newState();
   if (mergeAutosave) {
     const saved = readAutosave();
     state.forEach((scenes, i) => scenes.forEach(scene => {
       const entry = (saved[i] || {})[scene.index];
-      if (entry && typeof entry.text === 'string') scene.text = entry.text;
+      if (entry && typeof entry.text === 'string') restoreText(scene, entry);
     }));
   }
   openWorkspace();
@@ -3588,7 +3785,7 @@ async function loadDraftFile(file) {
         busy(OPENING, 'Restoring scene ' + (++done) + ' of ' + total + '…', done / total);
         const from = scenes.get(scene.index);
         if (!from) continue;
-        if (typeof from.text === 'string') scene.text = from.text;
+        if (typeof from.text === 'string') restoreText(scene, from);
         let lost = false;
         if (takes) lost = await restoreWindows(scene, from, takes);
         for (const part of takes ? [] : from.parts || []) {
@@ -4689,7 +4886,7 @@ function paintRailRow(scene) {
 const paintRailRows = () => state.flat().forEach(paintRailRow);
 
 // ----------------------------------------------------------------- focus ---
-const ui = {checkDrawn: 0};   // checkDrawn only ever grows: see linkWords
+const ui = {checkDrawn: 0, camDrawn: 0};   // both only ever grow: see linkWords
 function showScene(scene) {
   if (!scene) return;
   if (current !== scene) stopPlayback();
@@ -4715,15 +4912,13 @@ function buildFocus(scene) {
   ui.area = h('textarea', {spellcheck: 'false', 'aria-label': 'The line to read for ' + cardLabel(scene),
                            placeholder: 'This line is empty. Type what should be read here.'});
   ui.area.value = scene.text;
-  ui.reset = h('button', {class: 'btn sm', title: 'Reload the original script text',
+  ui.reset = h('button', {class: 'btn sm', title: 'Reload the original script text and its on-camera marks',
     onclick: () => {
-      if (!confirm('Reload the original script text for this scene?\n' +
-                   'Your changes to this text will be lost.')) return;
-      scene.text = scene.original;
-      ui.area.value = scene.text;
-      fitArea();
-      reverdict(scene);
-    }}, icon('refresh', 'sm'), 'Reset text');
+      if (!confirm('Reload the original script text and its on-camera marks for this scene?\n' +
+                   'Your changes to this text and its marks will be lost.')) return;
+      lineStep(scene, null);
+      retext(scene, scene.original, rangesOf(scene.original, scene.originalCamera));
+    }}, icon('refresh', 'sm'), 'Reset');
 
   // Header. Reset sits under the text size, never over the words; its space is
   // always kept, so it appearing on the first keystroke moves nothing.
@@ -4735,19 +4930,39 @@ function buildFocus(scene) {
     ui.pill, h('span', {class: 'spacer'}),
     h('div', {class: 'head-tools'}, textSizeControl(), ui.reset));
   ui.area.oninput = () => {
-    fitArea();
-    if (ui.area.value === scene.text) return;
-    scene.text = ui.area.value;
-    // Reset arms on ANY divergence from the original.
-    ui.reset.classList.toggle('invisible', scene.text === scene.original);
-    reverdict(scene);
+    if (ui.area.value === scene.text) fitArea(); else retext(scene, ui.area.value);
+    scene.lineHistory.caret = ui.area.selectionEnd;   // where the next keystroke continues the run
   };
-  // Lines said on camera, read into the lens: shown as the script sent them,
-  // above the text the narrator may still edit.
-  const onCamera = scene.onCamera.length ? h('div', {class: 'on-camera'},
-    h('div', {class: 'eyebrow', text: 'Look at the camera for'}),
-    scene.onCamera.map(line => h('p', {text: line}))) : null;
-  const reading = h('div', {class: 'card reading'}, onCamera, ui.area);
+  // The page's own undo, not the textarea's: that one knew only the text.
+  ui.area.addEventListener('beforeinput', event => {
+    if (!event.inputType.startsWith('history')) return lineStep(scene, event.inputType);
+    event.preventDefault();
+    stepLine(scene, event.inputType === 'historyUndo');
+  });
+  ui.area.addEventListener('keydown', event => {
+    const key = event.key.toLowerCase();
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
+    event.preventDefault();
+    stepLine(scene, key === 'z' && !event.shiftKey);
+  });
+  // The passages said on camera are marked IN the text: a copy of it behind
+  // the transparent textarea, same font and wrapping, carries the marks, so
+  // typing and paste stay the textarea's own. The bar under it marks
+  // a selection (whole sentences) big, small or not on camera, or changes
+  // the passage the caret is in.
+  ui.marks = h('div', {class: 'read-marks', 'aria-hidden': 'true'});
+  const keep = event => event.preventDefault();   // the selection stays put
+  ui.camLooks = LOOKS.map(look => h('button', {class: 'btn sm cam-btn', 'data-look': look,
+    onmousedown: keep, onclick: () => markLook(scene, look)},
+    h('mark', {class: 'cam ' + look, text: look === 'big' ? 'Big' : 'Small'})));
+  ui.camOff = h('button', {class: 'btn sm', onmousedown: keep, onclick: () => markLook(scene, null)});
+  ui.camStatus = h('div', {class: 'cam-status'});
+  ui.camWarn = h('div', {class: 'cam-warn'});
+  ui.camBar = h('div', {class: 'cam-bar'}, ui.camStatus, ui.camWarn,
+    h('div', {class: 'cam-tools'}, ...ui.camLooks, ui.camOff,
+      h('span', {class: 'cam-hint', text: 'Select text to mark it. A mark covers whole sentences.'})));
+  for (const type of ['select', 'keyup', 'mouseup', 'focus', 'blur']) ui.area.addEventListener(type, () => paintCamBar(scene));
+  const reading = h('div', {class: 'card reading'}, h('div', {class: 'read-wrap'}, ui.marks, ui.area), ui.camBar);
 
   ui.dock = h('div', {class: 'dock'});
   buildAudio(scene);
@@ -4761,15 +4976,122 @@ function buildFocus(scene) {
     h('div', {class: 'focus-inner'}, head, reading, ui.check, ui.notes));
   $('focus').replaceChildren(ui.page, ui.dock);
   fitArea();
+  paintPassages(scene);
   drawScene(scene);
 }
 
+// Every change of the line (typing, Reset, Rewrite to what was heard, an
+// undo): its on-camera passages follow the words they cover, unless the
+// change says where they are.
+function retext(scene, text, camera = shiftRanges(scene.camera, scene.text, text)) {
+  scene.camera = camera;
+  scene.text = text;
+  if (ui.area.value !== text) ui.area.value = text;
+  fitArea();
+  paintPassages(scene);
+  reverdict(scene);
+}
+
+const lineState = scene => ({text: scene.text, camera: scene.camera,
+                             sel: [ui.area.selectionStart, ui.area.selectionEnd]});
+// Before a change of the line: its state as an undo step (see recordStep).
+const lineStep = (scene, run) =>
+  recordStep(scene.lineHistory, lineState(scene), run, ui.area.selectionStart, Date.now());
+// Ctrl+Z (back) or Ctrl+Shift+Z / Ctrl+Y, while typing in the line.
+function stepLine(scene, back) {
+  const step = takeStep(scene.lineHistory, lineState(scene), back);
+  if (!step) return;
+  retext(scene, step.text, step.camera);
+  ui.area.setSelectionRange(...step.sel);
+  paintCamBar(scene);
+}
+
+// Video jobs of a channel showing the face-cam on passages only; audio only
+// shows none of it.
+const marksOn = () => mode === 'video' && !!(job && job.camera && job.camera.moments);
+function paintPassages(scene) {
+  const on = marksOn(), parts = [];
+  ui.camBar.classList.toggle('hidden', !on);
+  let at = 0;
+  for (const r of on ? scene.camera : []) {
+    parts.push(scene.text.slice(at, r.start), h('mark', {class: 'cam ' + r.look, text: scene.text.slice(r.start, r.end)}));
+    at = r.end;
+  }
+  ui.marks.replaceChildren(...parts, scene.text.slice(at));
+  // Reset arms on ANY change from the job: the words, or (where shown) the marks.
+  ui.reset.classList.toggle('invisible', scene.text === scene.original && !(on && marksChanged(scene)));
+  const repeated = on ? repeatedPassages(scene.text, scene.camera) : [];
+  ui.camWarn.replaceChildren(...repeated.map(r => h('div', {},
+    icon('warn', 'sm'), ' "' + clipped(scene.text.slice(r.start, r.end)) + '" also comes earlier in this scene. ' +
+    'The video marks the first one.')));
+  if (on) { paintCamBar(scene); paintCamStatus(scene); }
+}
+const clipped = text => text.length > 60 ? text.slice(0, 57).trimEnd() + '…' : text;
+// What the bar acts on: the passage the caret is in, or the whole sentences
+// a selection touches. Only while the text has the focus: a selection left
+// behind is no longer shown, and must not be marked unseen.
+function camTarget(scene) {
+  const a = ui.area.selectionStart, b = ui.area.selectionEnd;
+  if (document.activeElement !== ui.area) return {at: null, span: null};
+  return a === b ? {at: passageAt(scene.camera, a), span: null} : {at: null, span: sentenceSpan(scene.text, a, b)};
+}
+function paintCamBar(scene) {
+  const {at, span} = camTarget(scene);
+  for (const button of ui.camLooks) {
+    button.disabled = !at && !span;
+    button.classList.toggle('on', !!at && at.look === button.dataset.look);
+  }
+  ui.camOff.textContent = at ? 'Remove' : 'Not on camera';
+  ui.camOff.disabled = !at && !(span && scene.camera.some(r => r.start < span[1] && span[0] < r.end));
+}
+function markLook(scene, look) {
+  const {at, span} = camTarget(scene), [a, b] = at ? [at.start, at.end] : span || [];
+  if (a === undefined) return;
+  lineStep(scene, null);
+  scene.camera = setLook(scene.text, scene.camera, a, b, look);
+  ui.area.setSelectionRange(b, b);   // the caret in what was just marked
+  paintPassages(scene);
+  autosave();
+}
+// "On camera: 32% of this scene · 28% of the video", or the default when a
+// video (or the sign-off) has no passages at all, as the render has it.
+// Once the keys (or a draft's scenes) stop coming: each asks the whole video.
+function paintCamStatus(scene) {
+  clearTimeout(ui.camTimer);
+  ui.camTimer = setTimeout(async () => {
+    const drawn = ++ui.camDrawn, text = await cameraStatus(scene);
+    if (drawn === ui.camDrawn && scene === current) ui.camStatus.textContent = text;
+  }, 100);
+}
+const percent = ([on, all]) => Math.round(all ? 100 * on / all : 0) + '%';
+const shareOf = async scene => ({letters: cameraShare(scene.text, scene.camera), seconds: await heardShare(scene)});
+async function cameraStatus(scene) {
+  if (scene.ending) return scene.camera.length
+    ? 'On camera: ' + percent(blendShares([await shareOf(scene)])) + ' of the sign-off. ' +
+      'The face-cam shows in its passages only.'
+    : "No passages: the sign-off keeps the channel's outro (default).";
+  const i = itemOf(scene), video = itemKind(job.items[i]) === 'main' ? 'video' : 'short';
+  const scenes = state[i].filter(s => !s.ending);
+  if (!scenes.some(s => s.camera.length))
+    return 'No passages in this ' + video + ': the face-cam stays in the corner all along (default).';
+  const shares = await Promise.all(scenes.map(shareOf));
+  return 'On camera: ' + percent(blendShares([shares[scenes.indexOf(scene)]])) + ' of this scene · ' +
+    percent(blendShares(shares)) + ' of the ' + video + '. Between passages: ' +
+    (job.camera.between === 'hidden' ? 'no face-cam.' : 'the face-cam in the corner.');
+}
+
 // The line grows to fit: the narrator reads from it while recording, so no
-// sentence may hide behind an inner scrollbar.
+// sentence may hide behind an inner scrollbar. Measured with the box around
+// it holding its height: collapsed for a moment, the page got shorter, its
+// scroll was pulled up, and every key typed near the end of a long line
+// scrolled the page to the top and (smoothly) back down to the caret.
 function fitArea() {
   if (!ui.area) return;
+  const wrap = ui.area.parentNode;
+  wrap.style.minHeight = ui.area.offsetHeight + 'px';
   ui.area.style.height = 'auto';
   ui.area.style.height = (ui.area.scrollHeight + 2) + 'px';
+  wrap.style.minHeight = '';
 }
 
 function textSizeControl() {
@@ -4793,11 +5115,12 @@ function applyReadSize(size) {
 // Everything that depends on a scene's state, repainted after any change.
 function drawScene(scene) {
   paintRailRow(scene);
+  // A verdict anywhere in the video can change its share on camera.
+  if (marksOn() && current && ui.camStatus && itemOf(scene) === itemOf(current)) paintCamStatus(current);
   if (scene !== current || !ui.pill) return;
   ui.pill.className = 'pill ' + scene.status;
   ui.pill.replaceChildren(statusIcon(scene.status), STATUS_TEXT[scene.status]
     + (['ok', 'close', 'mismatch'].includes(scene.status) ? ' · ' + Math.round(scene.ratio * 100) + '%' : ''));
-  ui.reset.classList.toggle('invisible', scene.text === scene.original);
 
   // The ending's length first: it is about the whole take, the name warnings
   // are about how its parts are ordered.
@@ -4956,10 +5279,8 @@ function drawCheck(scene) {
         if (!confirm('This rewrites the scene to what the speech check ' +
                      'heard.\nThe STT can mishear words - check the new ' +
                      'text carefully afterwards.')) return;
-        scene.text = applyHeardText(scene.text, analysis.ops);
-        ui.area.value = scene.text;
-        fitArea();
-        reverdict(scene);
+        lineStep(scene, null);
+        retext(scene, applyHeardText(scene.text, analysis.ops));
       }}, icon('refresh', 'sm'), 'Rewrite the scene to what was heard'));
   }
   if (actions.childElementCount) body.append(actions);
@@ -4986,6 +5307,34 @@ async function heardTimings(scene, heard) {
     else return null;
   }
   return out.length === heardStream(heard).length ? out : null;
+}
+// A checked scene's [on camera, all] in seconds of its recording: each
+// passage from its first heard word to its last (the render's moment before
+// its lead and tail). Null while its words are not tied to the audio. The
+// timings are kept per arrangement of clips: the status asks on every key.
+const timingsKept = new WeakMap();
+async function heardShare(scene) {
+  if (!scene.checked || !scene.transcript) return null;
+  const clips = scene.clips, kept = timingsKept.get(clips);
+  const times = kept && kept.transcript === scene.transcript ? kept.times
+    : await heardTimings(scene, scene.transcript);
+  timingsKept.set(clips, {transcript: scene.transcript, times});
+  if (!times) return null;
+  const ops = diffOps(scene.text, scene.transcript);
+  let on = 0;
+  for (const r of scene.camera) {
+    const from = tokenStream(scene.text.slice(0, r.start)).length, to = tokenStream(scene.text.slice(0, r.end)).length;
+    let pos = 0, first = Infinity, last = -Infinity;
+    for (const op of ops) {
+      if (op.kind === 'eq' && pos < to && pos + op.nScript > from) {
+        first = Math.min(first, times[op.at][0]);
+        last = Math.max(last, times[op.at][1]);
+      }
+      pos += op.nScript;
+    }
+    if (last > first) on += last - first;
+  }
+  return [on, sceneLength(clips)];
 }
 // Heard words become clickable (play from there) and follow playback.
 // The card's warning for speech the check may have skipped (see
@@ -5620,7 +5969,8 @@ const SHORTCUTS = [
   [['S'], null, 'Split at the playhead, or around the selection'],
   [['Del'], null, 'Delete the selection, or the selected clip'],
   [['P'], null, 'Shorten long pauses'],
-  [['Ctrl', 'Z'], null, 'Undo'], [['Ctrl', 'Shift', 'Z'], null, 'Redo'],
+  [['Ctrl', 'Z'], null, 'Undo (in the text: its words and marks)'],
+  [['Ctrl', 'Shift', 'Z'], null, 'Redo (in the text: its words and marks)'],
   [['+'], ['−'], 'Zoom the timeline'], [['Home'], null, 'Playhead to the start'],
   [['←'], ['→'], 'One frame back / on (video; the preview shows it)'],
   [['Shift', '←'], ['Shift', '→'], 'Playhead 1 s back / on'],
@@ -5854,7 +6204,7 @@ async function resumeSession() {
     for (const scene of state[i]) {
       const from = saved.get(scene.index);
       if (!from) continue;
-      scene.text = from.text;
+      restoreText(scene, from);
       const clips = from.clips || [];
       const lost = clips.some(c => !sources.has(c.src));
       scene.clips = clips.filter(c => sources.has(c.src)).map(c => ({...c, id: newClipId()}));
@@ -5884,11 +6234,11 @@ async function resumeSession() {
   return true;
 }
 
-// Unexported work = anything attached or reworded that only lives in this
+// Unexported work = anything attached, reworded or marked that only lives in this
 // browser. Losing it is the narrator's explicit choice, never a side effect.
 function hasUnexportedWork() {
-  return state.flat().some(scene =>
-    scene.clips.length || scene.text.trim() !== scene.original.trim());
+  return state.flat().some(scene => scene.clips.length || scene.text.trim() !== scene.original.trim() ||
+    marksChanged(scene));
 }
 async function newProject() {
   if (hasUnexportedWork() &&
