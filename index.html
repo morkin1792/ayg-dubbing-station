@@ -953,11 +953,20 @@ const itemName = item => item.project.split('/').pop();
 const itemKind = item => item.project.includes('/')
   ? 'short ' + ((itemName(item).match(/^\d+/) || [''])[0])
   : 'main';
-// What one recording is called: "3rd scene", or the sign-off that plays after
-// the last one.
+// A short read in one go (one scene): it is called by the short, never
+// "1st scene", and its card is titled with the short's own name.
+const loneShort = item => item.project.includes('/') && item.scenes.length === 1;
+const shortTitle = item => item.label.replace(/_/g, ' ');
+// What one recording is called: "3rd scene", "short 2", or the sign-off that
+// plays after the last scene.
 function cardLabel(scene) {
-  return scene.ending ? 'Ending' : ordinal(scene.index + 1) + ' scene';
+  if (scene.ending) return 'Ending';
+  const item = job.items[itemOf(scene)];
+  return loneShort(item) ? itemKind(item) : ordinal(scene.index + 1) + ' scene';
 }
+// The same inside a sentence: "the 3rd scene", "the ending", "short 2".
+const theCard = scene => scene.ending ? 'the ending'
+  : loneShort(job.items[itemOf(scene)]) ? cardLabel(scene) : 'the ' + cardLabel(scene);
 const typing = () => {
   const el = document.activeElement;
   return el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' ||
@@ -2872,7 +2881,7 @@ async function stopRecording() {
       blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true, video});
     await decodeSource(src).catch(() => {});
     commit(scene, [...scene.clips, wholeClip(src)]);
-    toast('Take ' + number + ' added to the ' + cardLabel(scene) + ' (' + clock(src.duration) + ').');
+    toast('Take ' + number + ' added to ' + theCard(scene) + ' (' + clock(src.duration) + ').');
   } catch (error) {
     banner('Could not keep the take: ' + (error.message || error));
   } finally {
@@ -4430,7 +4439,7 @@ async function checkScene(scene, fresh = false) {
   } catch (error) {
     if (scene.run !== run) return;
     scene.status = scene.clips.length ? 'unchecked' : 'missing';
-    banner('Speech check failed on the ' + cardLabel(scene) + ': ' +
+    banner('Speech check failed on ' + theCard(scene) + ': ' +
            (error.message || error));
   }
   drawScene(scene);
@@ -4573,7 +4582,7 @@ function updateProgress() {
   const what = (scenes.length - endings) + ' scenes' + (endings ? ' + ending' : '');
   $('status').textContent = done + ' of ' + what + ' ready' +
     (blank ? ' · ' + blank + ' recording(s) have an empty line, fill them in' : '') +
-    (recorder.phase === 'recording' ? ' · recording the ' + cardLabel(recorder.scene) : '') +
+    (recorder.phase === 'recording' ? ' · recording ' + theCard(recorder.scene) : '') +
     (done === scenes.length ? ' · ready to export' : '');
   const circumference = 2 * Math.PI * 15;
   $('ringFill').style.strokeDashoffset = circumference * (1 - done / Math.max(1, scenes.length));
@@ -4925,8 +4934,8 @@ function buildFocus(scene) {
   ui.pill = h('span', {class: 'pill'});
   const head = h('div', {class: 'scene-head'},
     h('div', {},
-      h('div', {class: 'eyebrow', text: itemKind(job.items[i]) + ' · ' + position}),
-      h('h2', {class: 'scene-title', text: cardLabel(scene)})),
+      h('div', {class: 'eyebrow', text: itemKind(job.items[i]) + (loneShort(job.items[i]) ? '' : ' · ' + position)}),
+      h('h2', {class: 'scene-title', text: loneShort(job.items[i]) ? shortTitle(job.items[i]) : cardLabel(scene)})),
     ui.pill, h('span', {class: 'spacer'}),
     h('div', {class: 'head-tools'}, textSizeControl(), ui.reset));
   ui.area.oninput = () => {
@@ -5075,7 +5084,7 @@ async function cameraStatus(scene) {
   if (!scenes.some(s => s.camera.length))
     return 'No passages in this ' + video + ': the face-cam stays in the corner all along (default).';
   const shares = await Promise.all(scenes.map(shareOf));
-  return 'On camera: ' + percent(blendShares([shares[scenes.indexOf(scene)]])) + ' of this scene · ' +
+  return 'On camera: ' + (scenes.length > 1 ? percent(blendShares([shares[scenes.indexOf(scene)]])) + ' of this scene · ' : '') +
     percent(blendShares(shares)) + ' of the ' + video + '. Between passages: ' +
     (job.camera.between === 'hidden' ? 'no face-cam.' : 'the face-cam in the corner.');
 }
