@@ -351,6 +351,9 @@ mark.cam.small { text-decoration: underline dashed var(--cam) 2px; text-underlin
 .dock-bar .tsep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
 .dock-info { color: var(--text-3); font-size: 12px; margin-right: 8px; white-space: nowrap; }
 .time { font: 600 13px var(--mono); color: var(--text-2); min-width: 116px; padding: 0 6px; }
+.speed-btn { font: 700 12px var(--mono); min-width: 42px; padding: 0 6px; }
+/* Its sped-up copy still being made: Play waits for it. */
+.speed-btn.working { animation: blink 1.2s ease-in-out infinite; }
 .time b { color: var(--text); font-weight: 600; }
 .tl-wrap { position: relative; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; position: relative; }
@@ -502,6 +505,9 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .modal-note { margin: 0 0 8px; color: var(--text-2); font-size: 13.5px; }
 .input.num { flex: 0 0 84px; text-align: right; }
 .cam-note { color: var(--text-2); font-size: 12.5px; margin: 6px 0 0; }
+.cam-note:empty { display: none; }
+/* The card frames the live camera (Camera setup) or a recorded take (Frame). */
+#cameraLayer[data-kind="take"] .camera-only, #cameraLayer[data-kind="camera"] .take-only { display: none !important; }
 .cam-note.warn { color: var(--warn); font-weight: 600; display: flex; gap: 6px; align-items: flex-start; }
 .cam-float { position: fixed; z-index: 30; width: 220px; border-radius: 12px; overflow: hidden; background: #000;
              box-shadow: var(--shadow-lg); border: 1px solid var(--line-2); cursor: grab; touch-action: none; user-select: none; }
@@ -512,7 +518,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .cam-plain video { position: absolute; max-width: none; object-fit: fill; }
 .cam-float.plain .cam-plain { display: block; }
 .cam-float.plain canvas { display: none; }
-.cam-float .cam-tag { position: absolute; left: 32px; top: 7px; font: 700 11px/1 var(--ui); color: #fff;
+.cam-float .cam-tag { position: absolute; left: 58px; top: 7px; font: 700 11px/1 var(--ui); color: #fff;
                       background: rgba(0,0,0,.5); padding: 4px 6px; border-radius: 6px; pointer-events: none; }
 .cam-float .cam-fold { position: absolute; top: 3px; right: 3px; color: #fff; }
 /* The corner that resizes it: top left, as it sits bottom right. */
@@ -520,9 +526,16 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
                        place-items: center; border-radius: 6px; background: rgba(0,0,0,.5); color: #fff;
                        cursor: nwse-resize; }
 .cam-float .cam-size svg { width: 14px; height: 14px; pointer-events: none; }
+/* Frame: right of the resize corner, the same small dark square. */
+.cam-float .cam-frame { position: absolute; left: 30px; top: 4px; width: 22px; height: 22px; z-index: 1; display: grid;
+                        place-items: center; border: 0; padding: 0; border-radius: 6px; background: rgba(0,0,0,.5);
+                        color: #fff; cursor: pointer; }
+.cam-float .cam-frame[hidden] { display: none; }
+.cam-float .cam-frame:hover { background: rgba(0,0,0,.75); }
+.cam-float .cam-frame svg { width: 14px; height: 14px; pointer-events: none; }
 .cam-float.folded { width: auto !important; background: none; border: 0; box-shadow: none; overflow: visible; }
 .cam-float.folded canvas, .cam-float.folded .cam-plain, .cam-float.folded .cam-size,
-.cam-float.folded .cam-tag { display: none !important; }
+.cam-float.folded .cam-frame, .cam-float.folded .cam-tag { display: none !important; }
 .cam-float.folded .cam-fold { position: static; box-shadow: var(--shadow-lg); }
 .keys .k { display: flex; gap: 4px; justify-content: flex-end; }
 
@@ -766,11 +779,14 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
           <p class="cam-note" id="camStageNote">Drag the frame to move it, a corner to resize it. Only what is inside the frame is used.</p>
         </div>
         <div class="cam-side">
-          <div class="set-row"><div class="lbl"><b>Camera</b></div></div>
-          <select class="input" id="camSelect" style="width:100%"></select>
-          <p class="cam-note" id="camRate" aria-live="polite"></p>
-          <div class="set-row"><div class="lbl"><b>Quality</b><span>The most a recording uses</span></div>
+          <div class="set-row camera-only"><div class="lbl"><b>Camera</b></div></div>
+          <select class="input camera-only" id="camSelect" style="width:100%"></select>
+          <p class="cam-note camera-only" id="camRate" aria-live="polite"></p>
+          <div class="set-row camera-only"><div class="lbl"><b>Quality</b><span>The most a recording uses</span></div>
             <select class="input" id="camQuality"><option value="1080">1080p</option><option value="720">720p</option></select></div>
+          <div class="set-row"><div class="lbl"><b>Shape</b></div></div>
+          <div class="seg" id="camShape" role="radiogroup" aria-label="Shape"></div>
+          <p class="cam-note" id="camShapeNote"></p>
           <div class="set-row"><div class="lbl"><b>Background</b></div></div>
           <div class="seg" id="camBg" role="radiogroup" aria-label="Background">
             <button type="button" data-bg="none" role="radio">None</button>
@@ -786,13 +802,15 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
           <p class="cam-note" id="camBgNote"></p>
           <div class="set-row"><div class="lbl"><b>Result</b><span>A preview: the final cut is made when the video is built</span></div></div>
           <canvas class="cam-result" id="camResult" width="300" height="300"></canvas>
-          <label class="set-row" id="camApplyRow" hidden><span class="lbl"><b>Also apply to my existing takes</b><span id="camApplyHint"></span></span>
+          <label class="set-row camera-only" id="camApplyRow" hidden><span class="lbl"><b>Also apply to my existing takes</b><span id="camApplyHint"></span></span>
             <span class="switch"><input type="checkbox" id="camApply"><span class="knob"></span></span></label>
         </div>
       </div>
       <div class="modal-actions">
         <button class="btn" id="camCancel" type="button">Cancel</button>
-        <button class="btn primary" id="camSave" type="button">Save</button>
+        <button class="btn camera-only primary" id="camSave" type="button">Save</button>
+        <button class="btn take-only" id="camSaveAll" type="button">Save for all takes</button>
+        <button class="btn take-only primary" id="camSaveTake" type="button">Save for this take</button>
       </div>
     </div>
   </div>
@@ -800,6 +818,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 
 <div class="cam-float hidden" id="camFloat" title="Drag to move">
   <span class="cam-size" id="camFloatSize" title="Drag to resize"></span>
+  <button class="cam-frame" id="camFloatFrame" type="button" title="Frame this take: move, resize or reshape it, or change its background" aria-label="Frame this take" hidden></button>
   <div class="cam-plain" id="camPlain"></div>
   <canvas id="camFloatCanvas" width="320" height="320"></canvas>
   <span class="cam-tag" id="camFloatTag"></span>
@@ -898,6 +917,7 @@ const ICONS = {
   shrink: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
   video: 'M23 7l-7 5 7 5zM1 5h15v14H1z',
   pipette: 'M2 22l1-4 10-10 3 3-10 10zM13 6l3-3a2.1 2.1 0 0 1 3 3l-3 3',
+  crop: 'M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2',
   squeeze: 'M12 4v16M2 12h7M6 9l3 3-3 3M22 12h-7M18 9l-3 3 3 3',
 };
 function icon(name, cls) {
@@ -942,6 +962,7 @@ function preciseClock(seconds) {
   return Math.floor(s / 60) + ':' + (s % 60).toFixed(1).padStart(4, '0');
 }
 const megabytes = bytes => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+const sizeText = bytes => bytes >= 1024 ** 3 ? (bytes / 1024 ** 3).toFixed(1) + ' GB' : megabytes(bytes);
 function ordinal(n) {
   const suffix = ['th', 'st', 'nd', 'rd'], mod = n % 100;
   return n + (suffix[(mod - 20) % 10] || suffix[mod] || suffix[0]);
@@ -956,7 +977,6 @@ const itemKind = item => item.project.includes('/')
 // A short read in one go (one scene): it is called by the short, never
 // "1st scene", and its card is titled with the short's own name.
 const loneShort = item => item.project.includes('/') && item.scenes.length === 1;
-const shortTitle = item => item.label.replace(/_/g, ' ');
 // What one recording is called: "3rd scene", "short 2", or the sign-off that
 // plays after the last scene.
 function cardLabel(scene) {
@@ -1888,13 +1908,32 @@ function shortenPauses(clips, pauses, goal, variation, draw, quiet, rate) {
 
 // ------------------------------------------------------- camera model (pure) ---
 // Video takes. A crop is [x, y, w, h] in fractions of the camera frame, so it
-// survives any camera resolution; its shape in PIXELS (w * frameW over
-// h * frameH) is locked to the job's face-cam aspect, which keeps every take
-// of a scene joinable and the face-cam box the same shape all video long.
+// survives any camera resolution; its shape is in PIXELS (w * frameW over
+// h * frameH). The dubber picks the shape (SHAPES, or any: Custom); the takes
+// of one scene share one, since the desktop joins them into one face-cam
+// video, which has one shape. Different scenes may differ.
 const MIN_CROP = 0.1;   // the smaller side, as a fraction of the frame
 const QUALITY_CAPS = [1080, 720];
 const BACKGROUND_MODES = ['none', 'green', 'ai'];
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// The shapes offered (width / height); null is Custom.
+const SHAPES = [['Square', 1], ['4:3', 4 / 3], ['16:9', 16 / 9], ['3:4', 3 / 4]];
+const SHAPE_SLACK = 0.01;   // shapes this close are one
+const cropShape = ([, , w, h], [frameW, frameH]) => w * frameW / (h * frameH);
+const sameShape = (a, b) => Math.abs(a / b - 1) <= SHAPE_SLACK;
+const shapeName = aspect => (SHAPES.find(([, value]) => sameShape(value, aspect)) || ['a custom shape'])[0];
+// `crop` in the shape `aspect`: as it is when it has it; else around the
+// same centre with as much of its area as fits, so a re-shaped take keeps
+// its framing; the largest centred crop when there is none yet.
+function refitCrop(crop, aspect, [frameW, frameH]) {
+  if (!crop) return fitCrop(aspect, frameW, frameH);
+  if (sameShape(cropShape(crop, [frameW, frameH]), aspect)) return crop;
+  const [x, y, w, h] = crop;
+  const area = w * frameW * h * frameH;
+  const shrink = Math.min(1, frameW / Math.sqrt(area * aspect), frameH / Math.sqrt(area / aspect));
+  const nw = Math.sqrt(area * aspect) * shrink / frameW, nh = Math.sqrt(area / aspect) * shrink / frameH;
+  return [clamp(x + w / 2 - nw / 2, 0, 1 - nw), clamp(y + h / 2 - nh / 2, 0, 1 - nh), nw, nh];
+}
 // The largest centred crop of that shape.
 function fitCrop(aspect, frameW, frameH) {
   const frame = frameW / frameH;
@@ -1905,11 +1944,17 @@ function moveCrop([x, y, w, h], dx, dy) {
   return [clamp(x + dx, 0, 1 - w), clamp(y + dy, 0, 1 - h), w, h];
 }
 // Drag one corner ('nw' | 'ne' | 'sw' | 'se'); the opposite corner stays put.
-// The pointer's larger move (across or down) sets the new size.
+// The pointer's larger move (across or down) sets the new size; with no
+// `aspect` (Custom) each side follows the pointer on its own.
 function resizeCrop([x, y, w, h], corner, dx, dy, aspect, frameW, frameH) {
-  const ratio = frameW / (aspect * frameH);        // h = w * ratio keeps the shape
   const east = corner.includes('e'), south = corner.includes('s');
   const ax = east ? x : x + w, ay = south ? y : y + h;   // the fixed corner
+  if (!aspect) {
+    const fw = clamp(w + (east ? dx : -dx), MIN_CROP, east ? 1 - ax : ax);
+    const fh = clamp(h + (south ? dy : -dy), MIN_CROP, south ? 1 - ay : ay);
+    return [clamp(east ? ax : ax - fw, 0, 1 - fw), clamp(south ? ay : ay - fh, 0, 1 - fh), fw, fh];
+  }
+  const ratio = frameW / (aspect * frameH);        // h = w * ratio keeps the shape
   const byX = w + (east ? dx : -dx), byY = (h + (south ? dy : -dy)) / ratio;
   let nw = Math.abs(byX - w) >= Math.abs(byY - w) ? byX : byY;
   const room = Math.min(east ? 1 - ax : ax, (south ? 1 - ay : ay) / ratio);
@@ -2008,20 +2053,23 @@ function validSetup(setup) {
 // this take's seeks have been taking (`seek.cost`, seconds), never starts
 // while one is running (that restarts it: the picture froze for as long as
 // the seeks kept coming), and drift too small to seek over closes by playing
-// the picture a little faster or slower.
+// the picture a little faster or slower. At a preview speed (`rate`, 1.5
+// plays the scene's time 1.5 times as fast) all of it scales: the picture
+// runs at that speed, a seek aims that much further, the catch-up range is
+// around it.
 const SEEK_PAST = 0.25;         // s of drift a seek fixes; below, the speed does
 const CATCH_UP = [0.8, 1.25];   // the picture's speed range while closing drift
-function followClock(video, want, seek, now) {
+function followClock(video, want, seek, now, rate = 1) {
   if (video.seeking) return;
   if (!video.readyState) {   // still loading: where to start, once it can
-    video.currentTime = want + seek.cost;
+    video.currentTime = want + seek.cost * rate;
     return;
   }
   const drift = video.currentTime - want;
   if (Math.abs(drift) > SEEK_PAST) {
     seek.from = now;
-    video.currentTime = want + seek.cost;
-  } else video.playbackRate = clamp(1 - drift, ...CATCH_UP);
+    video.currentTime = want + seek.cost * rate;
+  } else video.playbackRate = clamp(rate - drift, rate * CATCH_UP[0], rate * CATCH_UP[1]);
   // Ended stays on its last frame: play() would restart the take from 0.
   if (video.paused && !video.ended) video.play().catch(() => {});
 }
@@ -2214,9 +2262,9 @@ const sources = new Map();   // sha256 -> {sha256, blob, name, duration, recorde
 const extOf = name => ('.' + name.split('.').pop()).toLowerCase();
 const stem = name => name.replace(/\.[^.]*$/, '');
 
-function mediaDuration(blob) {
+function mediaDuration(blob, tag = 'audio') {
   return new Promise(resolve => {
-    const audio = new Audio(), url = URL.createObjectURL(blob);
+    const audio = document.createElement(tag), url = URL.createObjectURL(blob);
     const done = value => { URL.revokeObjectURL(url); resolve(value); };
     audio.preload = 'metadata';
     audio.onloadedmetadata = () => done(isFinite(audio.duration) ? audio.duration : null);
@@ -2250,12 +2298,29 @@ const wholeClip = src => ({id: newClipId(), src: src.sha256, start: 0, end: src.
                            whole: true});
 
 // ------------------------------------------------------- video return (pure) ---
-// A video job's zip (dubbing-return/3). The page never cuts video: each take
-// ships ONCE, whole (its audio file plus its camera video), and every scene is
-// a list of windows over takes. The desktop does the trimming, cropping and
-// joining. `heardWords[i][n]` is, per clip, the timed words the check heard
-// (null when not all known).
+// clips.length is part of the test, not an implied one: a restored `override`
+// with nothing attached would otherwise arm Export and be rejected downstream.
+const isDone = scene => (scene.status === 'ok' || scene.status === 'override') &&
+  scene.text.trim() !== '' && scene.clips.length > 0;
+// The items (indexes into `state`) whose every scene is done: what a final
+// export carries. A dubber who finished the video but not its shorts hands
+// the video over now and the shorts in a later zip; the desktop imports
+// whatever items a zip has.
+const completeItems = state => state.map((scenes, i) => scenes.every(isDone) ? i : -1).filter(i => i >= 0);
+// A draft (the narrator's backup) carries every item; a final export the complete ones.
+const exportedItems = (state, draft) => draft ? state.map((_, i) => i) : completeItems(state);
+// A video job's zip (dubbing-return/3). Each take ships ONCE (its audio file
+// plus its camera video) and every scene is a list of windows over takes: the
+// desktop does the frame-exact trimming, cropping and joining. A final export
+// first cuts each take down to the seconds its clips use (`trimTakes`):
+// `trims` maps a take's sha256 to {offset, audio: {blob, sha256, name},
+// video: {blob, sha256}}, the cut files, which start `offset` seconds into
+// the take, so every window over it moves by that much. A take with no entry
+// ships whole. `heardWords[i][n]` is, per clip, the timed words the check
+// heard (null when not all known).
 const RETURN_V3 = 'dubbing-return/3';
+// A job item's video (or short) as people read its name.
+const itemTitle = item => item.label.replace(/_/g, ' ');
 const round4 = v => Math.round(v * 1e4) / 1e4;
 const takePath = src => 'takes/' + src.sha256.slice(0, 12) + extOf(src.name);
 function videoExt(video) {
@@ -2267,27 +2332,50 @@ const takeVideoPath = src => 'takes/' + src.sha256.slice(0, 12) + '-video' + vid
 // A draft is the narrator's backup and saves a take whose video is gone
 // (`video: null`, an evicted blob or an undo after switching modes); only the
 // final export insists on every clip having its picture.
-function videoReturn(job, state, sources, draft, heardWords) {
+function videoReturn(job, state, sources, draft, heardWords, trims = new Map()) {
+  const included = exportedItems(state, draft);
+  if (!included.length) throw new Error('Nothing is complete yet: finish every scene of at least one video.');
   const used = new Map();
-  for (const scenes of state) for (const scene of scenes) for (const clip of scene.clips) {
+  for (const i of included) for (const scene of state[i]) for (const clip of scene.clips) {
     const src = sources.get(clip.src);
     if (!src.video && !draft) throw new Error('"' + src.name + '" has no video: record it again with the camera on.');
     used.set(src.sha256, src);
   }
-  const windowOf = clip => ({take: takePath(sources.get(clip.src)), start: round4(clip.start), end: round4(clip.end)});
+  // A scene's takes become one face-cam video, which has one shape. The
+  // page keeps them so, but an undo can bring back a clip of a take
+  // re-shaped since.
+  included.forEach(i => state[i].forEach(scene => {
+    const shapes = scene.clips.map(clip => sources.get(clip.src).video).filter(Boolean)
+      .map(video => cropShape(video.setup.crop, video.frame));
+    if (!draft && shapes.some(shape => !sameShape(shape, shapes[0])))
+      throw new Error((scene.ending ? 'The sign-off' : 'Scene ' + (scene.index + 1)) + ' of "' +
+                      itemTitle(job.items[i]) + '" mixes takes of different face-cam shapes. ' +
+                      'Open Frame on one of its takes and save it for this take: the others take its shape.');
+  }));
+  const shipped = src => {
+    const trim = trims.get(src.sha256);
+    return !trim ? src : {...src, ...trim.audio, video: {...src.video, ...trim.video}};
+  };
+  const offsetOf = src => (trims.get(src.sha256) || {offset: 0}).offset;
+  const windowOf = clip => {
+    const src = sources.get(clip.src);
+    return {take: takePath(shipped(src)), start: round4(clip.start - offsetOf(src)),
+            end: round4(clip.end - offsetOf(src))};
+  };
+  const takes = [...used.values()].map(shipped);
   const report = {
     format: RETURN_V3,
     job_id: job.job_id,
     draft,
     generated_at: new Date().toISOString().slice(0, 19),
-    takes: [...used.values()].map(src => ({
+    takes: takes.map(src => ({
       file: takePath(src), sha256: src.sha256, name: src.name,
       video: src.video ? {file: takeVideoPath(src), sha256: src.video.sha256} : null,
       camera: src.video ? {crop: src.video.setup.crop, quality: src.video.setup.quality,
                            background: src.video.setup.background} : null,
     })),
-    items: job.items.map((item, i) => ({
-      project: item.project,
+    items: included.map(i => ({
+      project: job.items[i].project,
       scenes: state[i].map((scene, n) => {
         const words = scene.checked && heardWords[i][n];
         return {
@@ -2308,7 +2396,7 @@ function videoReturn(job, state, sources, draft, heardWords) {
       }),
     })),
   };
-  const files = [...used.values()].flatMap(src => [{path: takePath(src), blob: src.blob},
+  const files = takes.flatMap(src => [{path: takePath(src), blob: src.blob},
     ...(src.video ? [{path: takeVideoPath(src), blob: src.video.blob}] : [])]);
   return {report, files};
 }
@@ -2638,13 +2726,56 @@ function computePeaks(buffer) {
 
 // ------------------------------------------------------------------ player ---
 const player = {playing: false, scene: null, nodes: [], ctxStart: 0, from: 0, to: 0, raf: 0,
-                returnTo: null, run: 0, starting: null};
+                returnTo: null, run: 0, starting: null, rate: 1};
+// The preview's speed (per browser): only for hearing and watching faster.
+// The voice keeps its pitch: the scene is played from ONE copy of its
+// audio sped up by ffmpeg (atempo), made once per arrangement of clips and
+// speed. Takes, checks and exports never change.
+const SPEEDS = [1, 1.5, 2];
+let speed = SPEEDS.includes(Number(prefs.get('play.speed', '1'))) ? Number(prefs.get('play.speed', '1')) : 1;
+const STRETCHED_KEEP = 4;   // sped-up scenes kept decoded (≈11 MB a minute each)
+const stretchedScenes = new Map();
+let stretching = 0;   // sped-up copies being made: the speed button says so
+function stretchedScene(clips, rate) {
+  const key = sceneKey(clips) + '@' + rate;
+  let work = stretchedScenes.get(key);
+  if (!work) {
+    work = (async () => {
+      const data = await ffRun({in: await renderScene(clips)},
+                               ['-i', '{in}', '-af', 'atempo=' + rate, ...FLAC_OUT, '{out}'], '.flac');
+      return audioCtx().decodeAudioData(await new Blob([data]).arrayBuffer());
+    })();
+    stretching++;
+    paintSpeed();
+    work.catch(() => stretchedScenes.delete(key)).finally(() => { stretching--; paintSpeed(); });
+  }
+  stretchedScenes.delete(key);
+  stretchedScenes.set(key, work);   // most recently used last
+  while (stretchedScenes.size > STRETCHED_KEEP) stretchedScenes.delete(stretchedScenes.keys().next().value);
+  return work;
+}
+function paintSpeed() {
+  if (!ui.speedBtn) return;
+  ui.speedBtn.textContent = speed + '×';
+  ui.speedBtn.classList.toggle('working', stretching > 0);
+}
+// The speed button: 1× → 1.5× → 2×. The sped-up copy is made at once, so
+// Play rarely waits; a scene playing goes on from where it is, and one still
+// getting ready to play starts again at the new speed.
+function cycleSpeed(scene) {
+  speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+  prefs.set('play.speed', String(speed));
+  paintSpeed();
+  if (speed !== 1 && scene.clips.length) stretchedScene(scene.clips, speed).catch(() => {});
+  if (playingScene(scene))
+    playScene(scene, player.playing ? playheadNow() : scene.view.playhead, player.to, player.returnTo);
+}
 // Playing, or about to (waiting for its picture, `readyPicture`): a click,
 // a nudge, Space or Esc meanwhile acts on that start as on playing.
 const playingScene = scene => (player.playing && player.scene === scene) || player.starting === scene;
 function playheadNow() {
   if (!player.playing) return null;
-  return Math.min(player.to, player.from + (audioCtx().currentTime - player.ctxStart));
+  return Math.min(player.to, player.from + (audioCtx().currentTime - player.ctxStart) * player.rate);
 }
 async function playScene(scene, from, to, returnTo = null) {
   stopPlayback();
@@ -2656,18 +2787,37 @@ async function playScene(scene, from, to, returnTo = null) {
   // under it, and would fight the picture getting ready elsewhere.
   scene.view.playhead = from;
   player.starting = scene;
+  Object.assign(player, {to: end, returnTo});   // a speed change meanwhile starts this again
   if (current === scene) updateTransport();
   const ctx = audioCtx();
   await ctx.resume();
-  const buffers = await Promise.all(clips.map(c =>
+  let rate = speed, stretched = null;
+  if (rate !== 1) {
+    try { stretched = await stretchedScene(clips, rate); } catch (error) {
+      if (run !== player.run) return;
+      banner('Could not prepare the ' + rate + '× preview (' + (error.message || error) + '): playing at 1×.');
+      rate = 1;
+    }
+  }
+  const buffers = stretched ? [] : await Promise.all(clips.map(c =>
     decodeSource(sources.get(c.src)).catch(() => null)));
+  if (run !== player.run) return;
+  player.rate = rate;   // before the picture starts: it follows at this speed
   const startPicture = await readyPicture(scene, from);
   if (run !== player.run) return;   // stopped, or started again, meanwhile
   if (buffers.some(b => b == null))
     banner('Part of this scene cannot be previewed in this browser; it is skipped while playing.');
   const offsets = clipOffsets(clips);
   const t0 = ctx.currentTime + 0.04;
-  clips.forEach((c, i) => {
+  if (stretched) {
+    // One copy of the whole scene, its edits' fades already in it.
+    const node = ctx.createBufferSource();
+    node.buffer = stretched;
+    node.connect(ctx.destination);
+    node.start(t0, from / rate, (end - from) / rate);
+    player.nodes.push(node);
+  }
+  if (!stretched) clips.forEach((c, i) => {
     const buffer = buffers[i];
     const cs = offsets[i], ce = cs + clipLen(c);
     if (!buffer || ce <= from || cs >= end) return;
@@ -2880,6 +3030,7 @@ async function stopRecording() {
     const src = await registerSource(
       blob, 'Take ' + number + (blob.type === 'audio/wav' ? '.wav' : '.flac'), {recorded: true, video});
     await decodeSource(src).catch(() => {});
+    fitToScene(scene, [src]);
     commit(scene, [...scene.clips, wholeClip(src)]);
     toast('Take ' + number + ' added to ' + theCard(scene) + ' (' + clock(src.duration) + ').');
   } catch (error) {
@@ -2932,11 +3083,8 @@ function showCount(n) {
 // cuts video; the desktop trims, crops and removes the background.
 const MODES = ['audio', 'video'];
 let mode = MODES.includes(prefs.get('station.mode', 'audio')) ? prefs.get('station.mode', 'audio') : 'audio';
-const jobAspect = () => job && job.camera && job.camera.aspect > 0 ? job.camera.aspect : null;
 const usedSources = () => [...new Set(allScenes().flatMap(scene => scene.clips.map(c => c.src)))]
   .map(sha => sources.get(sha));
-const STALE_JOB = 'This job file was exported by an older version of the desktop tool, so it ' +
-  'cannot record video. Ask for the job to be exported again.';
 
 function paintMode() {
   document.querySelectorAll('[data-mode-seg] button').forEach(button => {
@@ -2947,10 +3095,9 @@ function paintMode() {
   $('modeState').className = 'state ok';
   $('modeState').replaceChildren(icon(mode === 'video' ? 'video' : 'mic', 'sm'));
   $('camRow').classList.toggle('hidden', mode !== 'video');
-  $('cameraBtn').disabled = !(mode === 'video' && jobAspect());
+  $('cameraBtn').disabled = !(mode === 'video' && job);
   $('cameraHint').textContent = mode !== 'video' ? 'Switch to Video to set up the camera.'
-    : !job ? 'Open a job first.' : !jobAspect() ? STALE_JOB
-    : 'Camera, quality, framing and background for video takes.';
+    : !job ? 'Open a job first.' : 'Camera, quality, framing, shape and background for video takes.';
   updateFloat();
   drawRecorder();
   if (ui.marks && current) paintPassages(current);   // the marks are for video only
@@ -2962,7 +3109,6 @@ function paintMode() {
 async function setMode(next) {
   if (next === mode || !MODES.includes(next)) return paintMode();
   if (recorder.phase !== 'idle') { banner('Stop the recording first.'); return paintMode(); }
-  if (job && next === 'video' && !jobAspect()) { banner(STALE_JOB); return paintMode(); }
   if (job && next === 'audio') {
     const withVideo = [...sources.values()].filter(src => src.video);
     if (withVideo.length && !confirm('Switch to audio only?\nThe video of ' + withVideo.length +
@@ -2983,27 +3129,56 @@ async function setMode(next) {
   if (job && mode === 'video' && !cameraPref().crop) openCameraSetup();
 }
 
-// A job loaded while the switch says video, but too old to carry the face-cam
-// shape, is worked on in audio only (the remembered choice is left alone).
+// A job opened: the switch shows, and video with no camera set up yet opens
+// the setup.
 function modeForJob() {
-  if (mode === 'video' && !jobAspect()) { mode = 'audio'; banner(STALE_JOB + ' Working in audio only.'); }
   $('modeTop').classList.remove('hidden');
   paintMode();
   if (mode === 'video' && !cameraPref().crop) openCameraSetup();
 }
 
 // The saved camera setup for NEW takes (per browser): the device, the quality
-// cap, the crop and the background.
+// cap, the crop, its shape and the background.
 function cameraPref() {
   try { return JSON.parse(prefs.get('station.camera', 'null')) || {}; } catch (error) { return {}; }
 }
+// The shape new takes are framed in: the last one saved (a square the first
+// time), or null for Custom, any shape the frame was dragged to.
+function prefShape() {
+  const shape = cameraPref().shape;
+  return shape === null ? null : shape > 0 ? shape : 1;
+}
 // A crop made on one camera keeps its fractions; on a frame of another shape
-// they would give the wrong face-cam shape, so it is re-fitted there.
-function cropFor(crop, frame) {
-  const aspect = jobAspect();
-  if (!frame || !aspect) return crop;
-  if (crop && Math.abs(crop[2] * frame[0] / (crop[3] * frame[1]) - aspect) <= 0.01) return crop;
-  return fitCrop(aspect, frame[0], frame[1]);
+// they would give another face-cam shape, so it is re-fitted there.
+function cropFor(crop, frame, aspect = prefShape()) {
+  if (!frame) return crop;
+  return aspect ? refitCrop(crop, aspect, frame) : crop || [0, 0, 1, 1];
+}
+// The takes whose shape must stay `src`'s: a scene joins its takes into one
+// face-cam video, which has one shape, so every take of a scene shares it,
+// and so does every take sharing a scene with those.
+function shapeGroup(src) {
+  const group = new Set([src.sha256]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const scene of allScenes()) {
+      const shas = scene.clips.map(c => c.src).filter(sha => sources.get(sha).video);
+      if (!shas.some(sha => group.has(sha))) continue;
+      for (const sha of shas) if (!group.has(sha)) { group.add(sha); grew = true; }
+    }
+  }
+  return [...group].map(sha => sources.get(sha));
+}
+// New takes join a scene in its shape: re-fitted (their framing's centre
+// kept) when the camera setup has had another shape since.
+function fitToScene(scene, added) {
+  const first = [...scene.clips.map(c => sources.get(c.src)), ...added].find(src => src.video);
+  if (!first) return;
+  const aspect = cropShape(first.video.setup.crop, first.video.frame);
+  const refit = added.filter(src => src.video && !sameShape(cropShape(src.video.setup.crop, src.video.frame), aspect));
+  for (const src of refit)
+    src.video.setup = {...src.video.setup, crop: refitCrop(src.video.setup.crop, aspect, src.video.frame)};
+  if (refit.length) toast('Framed in this scene\'s shape (' + shapeName(aspect) + '), the shape of its other takes.');
 }
 function currentSetup(frame = cam.frame) {
   const pref = cameraPref();
@@ -3147,9 +3322,9 @@ function drawFacecam(canvas, media, setup) {
   }
   ctx.putImageData(img, 0, 0);
 }
-// A canvas of the face-cam's shape, `width` wide.
-function sizeFacecam(canvas, width) {
-  const height = Math.round(width / (jobAspect() || 1));
+// A canvas of the face-cam's shape (`aspect`), `width` wide.
+function sizeFacecam(canvas, width, aspect) {
+  const height = Math.round(width / aspect);
   if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
 }
 
@@ -3168,7 +3343,7 @@ const CUE_AHEAD = 2;   // s before a cut that the next clip's reel gets ready
 const FLOAT_MIN = 140;   // px: the preview's smallest width (220 until resized)
 const DRAG_START = 4;    // px the pointer moves before a press on the folded button moves it
 const float = {raf: 0, last: 0, reels: [], drag: null, resize: null, width: undefined, saved: undefined,
-               stepping: false, cameraWanted: false};
+               stepping: false, cameraWanted: false, aspect: 1, take: null};
 // `frameAt`: the timestamp of the frame a reel shows (frame steps need it).
 function reels() {
   if (!float.reels.length) float.reels = [0, 1].map(() => {
@@ -3265,7 +3440,7 @@ async function readyPicture(scene, from) {
     if (!video.seeking && video.readyState >= 2) break;
     await new Promise(resolve => setTimeout(resolve, 15));
   }
-  return () => followClock(video, want, shown.seek, performance.now());
+  return () => followClock(video, want, shown.seek, performance.now(), player.rate);
 }
 // The camera is on only while it is seen: a take being recorded, the camera
 // setup, or the preview where the playhead has no recorded picture (an
@@ -3310,8 +3485,9 @@ const CUTOUT_MAX_WIDTH = 480;   // px
 function floatTick(now) {
   float.raf = requestAnimationFrame(floatTick);
   if (!float.saved && !float.drag) placeFloat();
-  // A take or the camera setup shows the camera whatever the preview does.
-  const cameraBusy = recorder.phase !== 'idle' || !$('cameraLayer').hidden;
+  // A take or the camera setup shows the camera whatever the preview does
+  // (framing a recorded take does not: that is the take's own picture).
+  const cameraBusy = recorder.phase !== 'idle' || (!$('cameraLayer').hidden && !camEdit.take);
   // Folded, nothing shows: a take left playing would decode on to its end.
   if ($('camFloat').classList.contains('folded')) {
     float.reels.forEach(parkReel);
@@ -3319,7 +3495,8 @@ function floatTick(now) {
     return;
   }
   if (now - float.last < 66) return;
-  let media = cam.video, setup = currentSetup(), tag = recorder.phase === 'recording' ? '● REC' : 'Camera';
+  let media = cam.video, setup = currentSetup(), frame = cam.frame, take = null;
+  let tag = recorder.phase === 'recording' ? '● REC' : 'Camera';
   const playing = player.playing && current && player.scene === current;
   const at = playing ? playheadNow() : current && recorder.phase === 'idle' ? current.view.playhead : null;
   const hit = at != null && locate(current.clips, at);
@@ -3329,7 +3506,7 @@ function floatTick(now) {
     loadReel(shown, src);
     shown.clip = clip.id;
     parkReel(spare);
-    if (playing) followClock(shown.video, clip.start + hit.within, shown.seek, performance.now());
+    if (playing) followClock(shown.video, clip.start + hit.within, shown.seek, performance.now(), player.rate);
     else {
       // Stopped, the other reel is ready for nothing: holding on to a clip
       // it showed earlier, a later cut would take it, still where it stopped.
@@ -3339,7 +3516,8 @@ function floatTick(now) {
     const next = current.clips[hit.i + 1], nextSrc = next && sources.get(next.src);
     // Holding the next clip is not enough: a reel that showed a stopped frame
     // holds its clip too, at that frame.
-    if (playing && nextSrc && nextSrc.video && !playsOn(clip, next) && clipLen(clip) - hit.within < CUE_AHEAD &&
+    if (playing && nextSrc && nextSrc.video && !playsOn(clip, next) &&
+        clipLen(clip) - hit.within < CUE_AHEAD * player.rate &&
         !(spare.clip === next.id && Math.abs(spare.video.currentTime - next.start) <= 0.001)) {
       loadReel(spare, nextSrc);
       spare.clip = next.id;
@@ -3348,17 +3526,24 @@ function floatTick(now) {
     }
     media = shown.video;
     setup = src.video.setup;
+    frame = src.video.frame;
     tag = stem(src.name);
+    take = {src, video: shown.video};
   } else float.reels.forEach(parkReel);
   useCamera(cameraBusy || media === cam.video);
   $('camFloatTag').textContent = tag;
+  // Frame: the take on show, framed on its own picture.
+  float.take = recorder.phase === 'idle' ? take : null;
+  $('camFloatFrame').hidden = !float.take;
+  // The box takes the shape of what it shows.
+  float.aspect = frame ? cropShape(setup.crop, frame) : 1;
   const plain = recorder.phase === 'recording' || !cutsBackground(setup);
   $('camFloat').classList.toggle('plain', plain);
   if (plain) { float.last = now; showPlain(media, setup.crop); return; }
   if (now - float.last < CUTOUT_EVERY) return;
   float.last = now;
   const canvas = $('camFloatCanvas');
-  sizeFacecam(canvas, Math.min($('camFloat').clientWidth, CUTOUT_MAX_WIDTH));
+  sizeFacecam(canvas, Math.min($('camFloat').clientWidth, CUTOUT_MAX_WIDTH), float.aspect);
   drawFacecam(canvas, media, setup);
 }
 // The crop as CSS: the video sized so the crop fills the box (its shape is
@@ -3366,7 +3551,7 @@ function floatTick(now) {
 function showPlain(media, [x, y, w, h]) {
   if (!media) return;   // the camera is still starting
   const box = $('camPlain');
-  box.style.aspectRatio = String(jobAspect() || 1);
+  box.style.aspectRatio = String(float.aspect);
   if (box.firstChild !== media) box.replaceChildren(media);
   Object.assign(media.style, {width: 100 / w + '%', height: 100 / h + '%',
                               left: -100 * x / w + '%', top: -100 * y / h + '%'});
@@ -3380,7 +3565,7 @@ function placeFloat() {
     try { float.saved = JSON.parse(prefs.get('cam.float', 'null')); } catch (error) { float.saved = null; }
   if (float.width === undefined) float.width = Number(prefs.get('cam.width', '0')) || null;
   if (float.width) {
-    const most = Math.min(window.innerWidth - 16, (window.innerHeight - 16) * (jobAspect() || 1));
+    const most = Math.min(window.innerWidth - 16, (window.innerHeight - 16) * float.aspect);
     box.style.width = clamp(float.width, FLOAT_MIN, Math.max(FLOAT_MIN, most)) + 'px';
   }
   const w = box.offsetWidth || 220, hgt = box.offsetHeight || 220;
@@ -3444,6 +3629,8 @@ function wireFloat() {
   // (across or up) sets the size.
   const grip = $('camFloatSize');
   grip.replaceChildren(icon('resize', 'sm'));
+  $('camFloatFrame').replaceChildren(icon('crop', 'sm'));
+  $('camFloatFrame').onclick = event => { event.stopPropagation(); openTakeFrame(); };
   grip.onpointerdown = event => {
     event.stopPropagation();   // a resize, not a move
     float.resize = {x: event.clientX, y: event.clientY, width: box.offsetWidth,
@@ -3453,7 +3640,7 @@ function wireFloat() {
   grip.onpointermove = event => {
     const r = float.resize;
     if (!r) return;
-    const across = r.x - event.clientX, up = (r.y - event.clientY) * (jobAspect() || 1);
+    const across = r.x - event.clientX, up = (r.y - event.clientY) * float.aspect;
     float.width = r.width + (Math.abs(across) >= Math.abs(up) ? across : up);
     placeFloat();
     if (!float.saved) return;   // unmoved, it sits bottom right by itself
@@ -3471,31 +3658,58 @@ function wireFloat() {
 }
 
 // ---- the camera setup page ----
-const camEdit = {setup: null, deviceId: '', drag: null, picking: false, raf: 0, last: 0};
+// One card, two uses: Camera setup frames the live camera for new takes;
+// Frame (on the preview) frames a recorded take on its own picture, the
+// one under the playhead, and never starts the camera. `take` is that
+// take's source, `media` the preview's video showing it, `shape` the frame's
+// shape (null: Custom).
+const camEdit = {setup: null, deviceId: '', drag: null, picking: false, raf: 0, last: 0,
+                 take: null, media: null, shape: 1};
 const HANDLE = 14;   // CSS px around a corner that grabs it
+const editMedia = () => camEdit.take ? camEdit.media : cam.video;
+const editFrame = () => camEdit.take ? camEdit.take.video.frame : cam.frame;
+function showCameraLayer(kind) {
+  $('cameraLayer').dataset.kind = kind;
+  $('camTitle').textContent = kind === 'take' ? 'Frame "' + stem(camEdit.take.name) + '"' : 'Camera setup';
+  camEdit.picking = false;
+  $('cameraLayer').hidden = false;
+  paintCameraSetup();
+  if (!camEdit.raf) camEdit.raf = requestAnimationFrame(cameraSetupTick);
+}
 async function openCameraSetup() {
   if (mode !== 'video') return;
-  if (!jobAspect()) { banner(STALE_JOB); return; }
   // Changing the camera restarts it, which would cut the take being recorded.
   if (recorder.phase !== 'idle') { banner('Stop the recording first, then change the camera setup.'); return; }
   const pref = cameraPref();
   camEdit.before = pref;
+  camEdit.take = camEdit.media = null;
+  camEdit.shape = prefShape();
   camEdit.deviceId = pref.deviceId || '';
   camEdit.setup = JSON.parse(JSON.stringify(currentSetup()));
-  camEdit.picking = false;
   $('camQuality').value = String(camEdit.setup.quality);
   $('camApply').checked = false;
   const takes = usedSources().filter(src => src.video).length;
   $('camApplyRow').hidden = !takes;
   $('camApplyHint').textContent = takes + ' take(s) recorded so far keep their own setup unless this is on.';
-  $('cameraLayer').hidden = false;
   pictureRate.stream = null;   // measured afresh, from the next frames
-  paintCameraSetup();
+  showCameraLayer('camera');
   try { await openCamera(); } catch (error) { if (error.message !== SUPERSEDED) banner(cameraError(error)); }
-  if ($('cameraLayer').hidden) return;   // cancelled while the camera started
-  camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+  if ($('cameraLayer').hidden || camEdit.take) return;   // cancelled while the camera started
+  camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame, camEdit.shape);
   fillCameraSelect();
-  if (!camEdit.raf) camEdit.raf = requestAnimationFrame(cameraSetupTick);
+}
+// Frame, on the preview: the take it shows, on its own picture.
+function openTakeFrame() {
+  const shown = float.take;
+  if (!shown || recorder.phase !== 'idle') return;
+  stopPlayback();
+  camEdit.before = cameraPref();
+  camEdit.take = shown.src;
+  camEdit.media = shown.video;
+  camEdit.setup = JSON.parse(JSON.stringify(shown.src.video.setup));
+  const aspect = cropShape(camEdit.setup.crop, shown.src.video.frame);
+  camEdit.shape = (SHAPES.find(([, value]) => sameShape(value, aspect)) || [])[1] || null;
+  showCameraLayer('take');
 }
 async function fillCameraSelect() {
   try {
@@ -3506,6 +3720,13 @@ async function fillCameraSelect() {
   } catch (error) { /* enumerate can be blocked; the default camera still works */ }
 }
 function paintCameraSetup() {
+  document.querySelectorAll('#camShape button').forEach(button => {
+    const value = button.dataset.shape ? Number(button.dataset.shape) : null;
+    const on = value === null ? camEdit.shape === null : camEdit.shape !== null && sameShape(value, camEdit.shape);
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', on);
+  });
+  $('camShapeNote').textContent = shapeNote();
   const bg = camEdit.setup.background;
   document.querySelectorAll('#camBg button').forEach(button => {
     const on = button.dataset.bg === bg.mode;
@@ -3531,6 +3752,17 @@ function paintCameraSetup() {
     $('camPick').classList.toggle('primary', camEdit.picking);
   }
   $('camStage').classList.toggle('picking', camEdit.picking);
+}
+// Framing a take in a new shape: its scene's other takes follow (a scene
+// joins its takes into one video, which has one shape), said before saving.
+function shapeNote() {
+  const src = camEdit.take, frame = editFrame();
+  if (!src || !frame) return '';
+  const aspect = cropShape(camEdit.setup.crop, frame);
+  const others = shapeGroup(src).filter(other => other !== src &&
+    !sameShape(cropShape(other.video.setup.crop, other.video.frame), aspect)).length;
+  return others ? 'Saving it for this take also gives this shape to the ' + others + ' other take(s) ' +
+                  'of its scene: the takes of a scene share one shape.' : '';
 }
 // How many NEW pictures a second the camera sends (`newPicture`), over the
 // last few seconds, sampled on every screen frame. A busy page samples less
@@ -3571,10 +3803,10 @@ function measurePictureRate(now) {
 }
 function cameraSetupTick(now) {
   camEdit.raf = requestAnimationFrame(cameraSetupTick);
-  measurePictureRate(now);
+  if (!camEdit.take) measurePictureRate(now);
   if (now - camEdit.last < 50) return;
   camEdit.last = now;
-  const video = cam.video, canvas = $('camCanvas');
+  const video = editMedia(), canvas = $('camCanvas');
   if (!video || !video.videoWidth) return;
   if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
     canvas.width = video.videoWidth;
@@ -3595,7 +3827,7 @@ function cameraSetupTick(now) {
   ctx.fillStyle = '#fff';
   for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]])
     ctx.fillRect(cx * W - r, cy * H - r, 2 * r, 2 * r);
-  sizeFacecam($('camResult'), 300);
+  sizeFacecam($('camResult'), 300, cropShape(camEdit.setup.crop, [W, H]));
   drawFacecam($('camResult'), video, camEdit.setup);
 }
 function stagePoint(event) {
@@ -3606,12 +3838,12 @@ function stagePoint(event) {
 function wireCameraSetup() {
   const canvas = $('camCanvas');
   canvas.onpointerdown = event => {
-    if (!camEdit.setup || !cam.frame) return;
-    const p = stagePoint(event);
+    if (!camEdit.setup || !editFrame()) return;
+    const p = stagePoint(event), media = editMedia();
     if (camEdit.picking) {
       const probe = document.createElement('canvas');
       probe.width = probe.height = 1;
-      probe.getContext('2d').drawImage(cam.video, p.fx * cam.video.videoWidth, p.fy * cam.video.videoHeight, 1, 1, 0, 0, 1, 1);
+      probe.getContext('2d').drawImage(media, p.fx * media.videoWidth, p.fy * media.videoHeight, 1, 1, 0, 0, 1, 1);
       const [r, g, b] = probe.getContext('2d').getImageData(0, 0, 1, 1).data;
       const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
       const bg = camEdit.setup.background;
@@ -3633,11 +3865,22 @@ function wireCameraSetup() {
     const p = stagePoint(event), dx = p.fx - camEdit.drag.fx, dy = p.fy - camEdit.drag.fy;
     camEdit.drag.fx = p.fx;
     camEdit.drag.fy = p.fy;
+    const [frameW, frameH] = editFrame();
     camEdit.setup.crop = camEdit.drag.corner
-      ? resizeCrop(camEdit.setup.crop, camEdit.drag.corner, dx, dy, jobAspect(), cam.frame[0], cam.frame[1])
+      ? resizeCrop(camEdit.setup.crop, camEdit.drag.corner, dx, dy, camEdit.shape, frameW, frameH)
       : moveCrop(camEdit.setup.crop, dx, dy);
   };
-  canvas.onpointerup = () => { camEdit.drag = null; };
+  canvas.onpointerup = () => {
+    if (camEdit.drag && camEdit.drag.corner) paintCameraSetup();   // a Custom shape's note
+    camEdit.drag = null;
+  };
+  $('camShape').replaceChildren(...[...SHAPES, ['Custom', null]].map(([label, aspect]) =>
+    h('button', {type: 'button', role: 'radio', 'data-shape': aspect || '', text: label,
+                 title: aspect ? null : 'Drag the corners to any shape', onclick: () => {
+      camEdit.shape = aspect;
+      if (aspect && editFrame()) camEdit.setup.crop = refitCrop(camEdit.setup.crop, aspect, editFrame());
+      paintCameraSetup();
+    }})));
   document.querySelectorAll('#camBg button').forEach(button => {
     button.onclick = () => {
       const bg = camEdit.setup.background;
@@ -3659,15 +3902,17 @@ function wireCameraSetup() {
     camEdit.deviceId = $('camSelect').value;
     prefs.set('station.camera', JSON.stringify({...cameraPref(), deviceId: camEdit.deviceId}));
     await reopenCamera();
-    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame, camEdit.shape);
   };
   $('camQuality').onchange = async () => {
     camEdit.setup.quality = parseInt($('camQuality').value, 10);
     prefs.set('station.camera', JSON.stringify({...cameraPref(), quality: camEdit.setup.quality}));
     await reopenCamera();
-    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame);
+    camEdit.setup.crop = cropFor(camEdit.setup.crop, cam.frame, camEdit.shape);
   };
   $('camSave').onclick = saveCameraSetup;
+  $('camSaveTake').onclick = () => saveTakeFrame(false);
+  $('camSaveAll').onclick = () => saveTakeFrame(true);
   $('camCancel').onclick = cancelCameraSetup;
   $('camScrim').onclick = cancelCameraSetup;
 }
@@ -3675,6 +3920,7 @@ function closeCameraSetup() {
   cancelAnimationFrame(camEdit.raf);
   camEdit.raf = 0;
   camEdit.drag = null;
+  camEdit.take = camEdit.media = null;
   $('cameraLayer').hidden = true;
 }
 function cancelCameraSetup() {
@@ -3682,22 +3928,59 @@ function cancelCameraSetup() {
   closeCameraSetup();
   if (before !== prefs.get('station.camera', 'null')) { prefs.set('station.camera', before); reopenCamera(); }
 }
-function saveCameraSetup() {
-  const setup = camEdit.setup, problem = validSetup(setup);
+// What keeps a setup from being saved, said; false when it can be.
+function setupRefused(setup) {
   if (setup.background.mode === 'green' && !(setup.background.colors || []).length) {
     banner('Pick at least one screen colour, or choose another background.');
-    return;
+    return true;
   }
-  if (problem) { banner('The camera setup is not complete: ' + problem + '.'); return; }
+  const problem = validSetup(setup);
+  if (problem) banner('The camera setup is not complete: ' + problem + '.');
+  return !!problem;
+}
+// `crop` (framed on a picture of `frame`) given to every one of `takes`, in
+// one shape: each take's own picture may be of another size or shape.
+function framedLike(takes, setup, frame) {
+  const aspect = camEdit.shape || (frame ? cropShape(setup.crop, frame) : null);
+  for (const src of takes)
+    src.video.setup = {...src.video.setup, background: setup.background,
+                       crop: aspect ? refitCrop(setup.crop, aspect, src.video.frame) : setup.crop};
+}
+function saveCameraSetup() {
+  const setup = camEdit.setup;
+  if (setupRefused(setup)) return;
   prefs.set('station.camera', JSON.stringify({deviceId: camEdit.deviceId, quality: setup.quality,
-                                              crop: setup.crop, background: setup.background}));
+                                              crop: setup.crop, shape: camEdit.shape,
+                                              background: setup.background}));
   if ($('camApply').checked) {
     const takes = usedSources().filter(src => src.video);
-    for (const src of takes)
-      src.video.setup = {...src.video.setup, crop: cropFor(setup.crop, src.video.frame), background: setup.background};
+    framedLike(takes, setup, cam.frame);
     sessionSave();
     toast('The new setup now applies to ' + takes.length + ' existing take(s) too.');
   }
+  closeCameraSetup();
+}
+// Frame's Save: this take as framed here (and, in a new shape, the takes
+// sharing a scene with it, re-fitted around their own framing), or every
+// take framed like it.
+function saveTakeFrame(all) {
+  const setup = camEdit.setup, src = camEdit.take;
+  if (setupRefused(setup)) return;
+  if (all) {
+    const takes = usedSources().filter(other => other.video);
+    framedLike(takes, setup, src.video.frame);
+    toast('Every take (' + takes.length + ') is now framed like this one.');
+  } else {
+    const aspect = cropShape(setup.crop, src.video.frame);
+    const others = shapeGroup(src).filter(other => other !== src &&
+      !sameShape(cropShape(other.video.setup.crop, other.video.frame), aspect));
+    src.video.setup = {...src.video.setup, crop: setup.crop, background: setup.background};
+    for (const other of others)
+      other.video.setup = {...other.video.setup, crop: refitCrop(other.video.setup.crop, aspect, other.video.frame)};
+    toast(others.length ? 'Saved. The ' + others.length + ' other take(s) of its scene now have its shape too.'
+                        : 'Saved for this take.');
+  }
+  sessionSave();
   closeCameraSetup();
 }
 
@@ -4331,6 +4614,7 @@ async function addParts(scene, files) {
     } catch (error) { banner('Could not read "' + file.name + '": ' + (error.message || error)); }
   }
   updateProgress();
+  fitToScene(scene, added.map(clip => sources.get(clip.src)));
   if (added.length) await commit(scene, [...scene.clips, ...added]);
 }
 
@@ -4546,16 +4830,12 @@ function partNameAlerts(scene) {
 }
 
 // ------------------------------------------------------------------ progress ---
-// clips.length is part of the test, not an implied one: a restored `override`
-// with nothing attached would otherwise arm Export and be rejected downstream.
 // A check's verdict. Between the pass mark and SIMILAR_ENOUGH the take is
 // `close`: amber, and like a mismatch it blocks the export until the narrator
 // listens and keeps the text (a wrong word hides easily in a 67%). So a zip
 // only ever says `ok` for 90% and up; `close` never reaches a final export.
 const VERDICTS = ['ok', 'close', 'override', 'mismatch'];
 const verdictOf = score => !score.ok ? 'mismatch' : score.ratio >= SIMILAR_ENOUGH ? 'ok' : 'close';
-const isDone = scene => (scene.status === 'ok' || scene.status === 'override') &&
-  scene.text.trim() !== '' && scene.clips.length > 0;
 
 const setStatus = text => { $('status').textContent = text; };
 // The top line for a long job, `text` null to hide it.
@@ -4577,13 +4857,17 @@ function updateProgress() {
   const heavy = videoSources().length;
   $('shrinkBtn').classList.toggle('hidden', heavy === 0);
   $('shrinkBtn').replaceChildren(icon('shrink'), h('span', {class: 'label', text: 'Shrink ' + heavy + ' video file(s)'}));
-  $('exportBtn').disabled = done !== scenes.length;
+  // Export opens as soon as one video (the main one or a short) is whole:
+  // a final zip carries the complete ones, the rest stay to finish later.
+  const complete = completeItems(state).length;
+  $('exportBtn').disabled = complete === 0;
   const endings = scenes.filter(scene => scene.ending).length;
   const what = (scenes.length - endings) + ' scenes' + (endings ? ' + ending' : '');
   $('status').textContent = done + ' of ' + what + ' ready' +
     (blank ? ' · ' + blank + ' recording(s) have an empty line, fill them in' : '') +
     (recorder.phase === 'recording' ? ' · recording ' + theCard(recorder.scene) : '') +
-    (done === scenes.length ? ' · ready to export' : '');
+    (done === scenes.length ? ' · ready to export'
+     : complete ? ' · ' + complete + ' of ' + job.items.length + ' videos ready to export' : '');
   const circumference = 2 * Math.PI * 15;
   $('ringFill').style.strokeDashoffset = circumference * (1 - done / Math.max(1, scenes.length));
   $('ringText').textContent = done + '/' + scenes.length;
@@ -4605,7 +4889,7 @@ async function materializeAll() {
     for (const scene of scenes) {
       const parts = [], heard = await heardOfScene(scene.clips);
       for (const [k, clip] of scene.clips.entries()) {
-        setStatus('Preparing audio ' + (++done) + ' of ' + total + '…');
+        saveProgress('Preparing audio ' + (++done) + ' of ' + total + '…');
         const part = await materialize(clip);
         const src = sources.get(clip.src);
         parts.push({...part, name: stem(src.name) + part.ext, heard: heard[k]});
@@ -4617,14 +4901,14 @@ async function materializeAll() {
   return plan;
 }
 
-function buildReturn(draft, plan) {
+function buildReturn(draft, plan, included) {
   return {
     format: 'dubbing-return/2',
     job_id: job.job_id,
     draft: draft,
     generated_at: new Date().toISOString().slice(0, 19),
-    items: job.items.map((item, i) => ({
-      project: item.project,
+    items: included.map(i => ({
+      project: job.items[i].project,
       scenes: state[i].map((scene, n) => ({
         index: scene.index,
         text: scene.text,
@@ -4658,8 +4942,7 @@ function buildReturn(draft, plan) {
 
 async function writeZip(draft, filename) {
   // Ask for the destination before any await chain, while the click is still
-  // "user activated", then stream into it. STORE (level 0): media does not
-  // compress, and this keeps a multi-gigabyte export off the heap.
+  // "user activated", then stream into it.
   let handle = null;
   if (window.showSaveFilePicker) {
     try {
@@ -4670,40 +4953,54 @@ async function writeZip(draft, filename) {
       handle = null;   // no picker permission, fall back to a download
     }
   }
+  saveProgress('Getting the files ready…');
   if (mode === 'video') return writeVideoZip(draft, filename, handle);
+  const included = exportedItems(state, draft);
   const plan = await materializeAll();
-  const stream = handle ? await handle.createWritable() : null;
-  const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'),
-                                   {level: 0});
-  const report = buildReturn(draft, plan);
-  await writer.add('return.json', new zip.TextReader(JSON.stringify(report, null, 2)),
-                   {level: 0});
   // The job rides in every zip, draft or finished: `return.json` alone has
   // no locale, no labels and no approved text, so without it a reopened zip
   // could not tell Reset what the script originally said. The desktop
   // import only reads return.json and the parts it names, so this member is
   // invisible there.
-  await writer.add('job.json', new zip.TextReader(JSON.stringify(job)), {level: 0});
-  let written = 0;
-  const total = plan.flat(2).length;
-  for (let i = 0; i < job.items.length; i++)
+  const members = [{path: 'return.json', text: JSON.stringify(buildReturn(draft, plan, included), null, 2)},
+                   {path: 'job.json', text: JSON.stringify(job)}];
+  for (const i of included)
     for (const [n, scene] of state[i].entries())
-      for (const [k, part] of plan[i][n].entries()) {
-        await writer.add(partName(i, scene, k, part), new zip.BlobReader(part.blob), {level: 0});
-        setStatus('Writing ' + (++written) + ' of ' + total + ' audio files…');
-      }
+      for (const [k, part] of plan[i][n].entries())
+        members.push({path: partName(i, scene, k, part), blob: part.blob});
+  await writeMembers(handle, filename, members);
+  return true;
+}
+
+// The zip itself: streamed into the file the narrator picked (else built in
+// memory and downloaded), STORE (level 0): media does not compress, and this
+// keeps a multi-gigabyte zip off the heap. The card counts BYTES written
+// (one face-cam take can be hundreds of MB) and leaves only once the file is
+// closed: until then, closing the tab would cut it short.
+async function writeMembers(handle, filename, members) {
+  const stream = handle ? await handle.createWritable() : null;
+  const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'), {level: 0});
+  const sizes = members.map(member => member.blob ? member.blob.size : member.text.length);
+  const total = sizes.reduce((sum, size) => sum + size, 0) || 1;
+  let done = 0;
+  for (const [k, member] of members.entries()) {
+    const shown = progress => saveProgress(sizeText(done + progress) + ' of ' + sizeText(total) +
+                                           ' · file ' + (k + 1) + ' of ' + members.length, (done + progress) / total);
+    shown(0);
+    await writer.add(member.path, member.blob ? new zip.BlobReader(member.blob) : new zip.TextReader(member.text),
+                     {level: 0, onprogress: shown});
+    done += sizes[k];
+  }
+  saveProgress('Finishing the file…', 1);
   const blob = await writer.close();
   if (stream) {
     // zip.js closes a WritableStream it was handed; closing twice throws.
     try { await stream.close(); } catch (error) { /* already closed */ }
   } else {
     const url = URL.createObjectURL(blob);
-    const link = h('a', {href: url, download: filename});
-    link.click();
+    h('a', {href: url, download: filename}).click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  updateProgress();
-  return true;
 }
 
 // The per-clip timed words a check heard, so a reopened draft still ties the
@@ -4713,6 +5010,59 @@ async function heardWordsOf(scene) {
   const parts = await heardOfScene(scene.clips);
   return parts.includes(undefined) ? null : parts.map(known => known.words);
 }
+// A final export cuts each take to the seconds its clips use (user,
+// 2026-10-17: whole takes made a 38-take zip a quarter bigger than needed).
+// Only then, never while editing: the page's clips stay windows over
+// immutable takes, and a draft ships them whole. A stream copy, never a
+// re-encode: the picture starts at the keyframe at or before the first used
+// second (up to one GOP of slack, 4 s on an OBS file), and the sound is cut
+// from exactly that second, re-encoded losslessly, so both keep one clock;
+// both run TRIM_TAIL past the last used second so the desktop's windows stay
+// inside the files. A take whose clips use nearly all of it ships whole, and
+// so does any take the cut fails on (ffmpeg not loaded, an unreadable cut):
+// the desktop trims whole takes exactly as it always did.
+const TRIM_TAIL = 0.5, TRIM_MIN_GAIN = 2;   // seconds
+async function trimTakes(included) {
+  const spans = new Map();   // take sha256 -> [first used second, last used second]
+  for (const i of included) for (const scene of state[i]) for (const clip of scene.clips) {
+    const span = spans.get(clip.src) || [Infinity, 0];
+    spans.set(clip.src, [Math.min(span[0], clip.start), Math.max(span[1], clip.end)]);
+  }
+  const trims = new Map();
+  let n = 0;
+  for (const [sha, [first, last]] of spans) {
+    const src = sources.get(sha);
+    const end = Math.min(src.duration, last + TRIM_TAIL);
+    n++;
+    if (!src.video || src.duration - (end - first) < TRIM_MIN_GAIN) continue;
+    saveProgress('Cutting "' + src.name + '" to the seconds it is used (' + n + ' of ' + spans.size + ')…');
+    try { trims.set(sha, await trimTake(src, first, end)); }
+    catch (error) { /* ships whole */ }
+  }
+  return trims;
+}
+async function trimTake(src, first, end) {
+  const ext = videoExt(src.video);
+  const whole = await mediaDuration(src.video.blob, 'video');
+  // The picture from the keyframe at or before `first`: how much is left
+  // says where that keyframe was, and that is where the sound is cut too.
+  const head = new Blob([await ffRun({v: src.video.blob},
+    ['-ss', first.toFixed(3), '-i', '{v}', '-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero', '{out}'], ext)],
+    {type: src.video.type});
+  const kept = await mediaDuration(head, 'video');
+  if (whole == null || kept == null) throw new Error('unreadable cut');
+  const offset = Math.max(0, Math.min(first, whole - kept));
+  const length = (end - offset).toFixed(3);
+  const video = await ffRun({v: head}, ['-i', '{v}', '-t', length, '-map', '0', '-c', 'copy', '{out}'], ext);
+  const audio = await ffRun({a: src.blob},
+    ['-ss', offset.toFixed(3), '-i', '{a}', '-t', length, ...FLAC_OUT, '{out}'], '.flac');
+  const videoBlob = new Blob([video], {type: src.video.type});
+  const audioBlob = new Blob([audio], {type: 'audio/flac'});
+  return {offset,
+          audio: {blob: audioBlob, sha256: await sha256hex(audioBlob), name: stem(src.name) + '.flac'},
+          video: {blob: videoBlob, sha256: await sha256hex(videoBlob)}};
+}
+
 async function writeVideoZip(draft, filename, handle) {
   const heard = [];
   for (const scenes of state) {
@@ -4720,30 +5070,19 @@ async function writeVideoZip(draft, filename, handle) {
     for (const scene of scenes) row.push(await heardWordsOf(scene));
     heard.push(row);
   }
-  const {report, files} = videoReturn(job, state, sources, draft, heard);   // throws on a clip without video
-  const stream = handle ? await handle.createWritable() : null;
-  const writer = new zip.ZipWriter(stream || new zip.BlobWriter('application/zip'), {level: 0});
-  await writer.add('return.json', new zip.TextReader(JSON.stringify(report, null, 2)), {level: 0});
-  await writer.add('job.json', new zip.TextReader(JSON.stringify(job)), {level: 0});
-  for (const [k, file] of files.entries()) {
-    setStatus('Writing ' + (k + 1) + ' of ' + files.length + ' files…');
-    await writer.add(file.path, new zip.BlobReader(file.blob), {level: 0});
-  }
-  const blob = await writer.close();
-  if (stream) {
-    try { await stream.close(); } catch (error) { /* zip.js closed it already */ }
-  } else {
-    const url = URL.createObjectURL(blob);
-    h('a', {href: url, download: filename}).click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  }
-  updateProgress();
+  videoReturn(job, state, sources, draft, heard);   // throws on a clip without video, before any cutting
+  const trims = draft ? new Map() : await trimTakes(exportedItems(state, draft));
+  const {report, files} = videoReturn(job, state, sources, draft, heard, trims);
+  await writeMembers(handle, filename, [
+    {path: 'return.json', text: JSON.stringify(report, null, 2)},
+    {path: 'job.json', text: JSON.stringify(job)},
+    ...files]);
   return true;
 }
 
-function jobSlug() {
+function jobSlug(included) {
   const video = job.items[0].project.split('/')[0].split('_').slice(0, 4).join('_');
-  const scripts = job.items.map(item => {
+  const scripts = included.map(i => job.items[i]).map(item => {
     if (!item.project.includes('/')) return 'main';
     const digits = item.project.split('/').pop().match(/^\d+/);
     return digits ? 's' + digits[0] : item.project.split('/').pop();
@@ -4757,28 +5096,43 @@ function timeStamp() {
        + '_' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds());
 }
 
+// The card's title while a zip is being written (null otherwise): closing
+// the tab meanwhile asks first.
+let saving = null;
+const saveProgress = (step, fraction) => busy(saving, step, fraction);
 async function saveZip(draft) {
   // The timestamp tells apart the drafts piling up on the narrator's disk
   // (and re-exports of the same job); the id inside the zip does the real
   // matching, the filename is only for people.
+  const included = exportedItems(state, draft);
+  const left = job.items.length - included.length;
   const name = (draft ? 'draft_' : 'complete_')
-    + jobSlug() + '_' + timeStamp() + '.zip';
+    + jobSlug(included) + '_' + timeStamp() + '.zip';
   const buttons = [$('exportBtn'), $('saveDraftBtn'), $('checkAllBtn')];
   buttons.forEach(button => { button.disabled = true; });
+  saving = draft ? 'Saving your draft' : 'Exporting the completed zip';
   try {
     if (await writeZip(draft, name)) {
       toast(draft
         ? 'Draft saved: ' + name + '. Load it on this page later to continue.'
-        : 'Completed zip saved: ' + name + '. Upload it to the shared Drive folder.',
+        : 'Completed zip saved: ' + name + '. Upload it to the shared Drive folder.'
+          + (left ? ' It carries ' + included.length + ' of ' + job.items.length + ' videos; the other '
+                    + left + ' stay here to finish and export later.' : ''),
         !draft && job.drive_folder_url ? {label: 'Open the Drive folder', run: openDrive} : null);
-      if (!draft) {
+      if (!draft && !left) {
         // The zip is the deliverable; the browser copies have done their job.
+        // A partial export keeps them: the rest is still being recorded.
         try { localStorage.removeItem(autosaveKey()); } catch (error) {}
         await sessionClear();
       }
     }
   }
-  catch (error) { banner('Could not write the zip: ' + (error.message || error)); }
+  // zip.js can reject with no error at all (the browser refused more memory).
+  catch (error) { banner('Could not write the zip: ' + ((error && error.message) || 'the browser gave no reason') + '.'); }
+  finally {
+    saving = null;
+    busy(null);
+  }
   $('saveDraftBtn').disabled = false;
   $('checkAllBtn').disabled = false;
   updateProgress();
@@ -4925,7 +5279,7 @@ function buildFocus(scene) {
     onclick: () => {
       if (!confirm('Reload the original script text and its on-camera marks for this scene?\n' +
                    'Your changes to this text and its marks will be lost.')) return;
-      lineStep(scene, null);
+      lineStep(scene);
       retext(scene, scene.original, rangesOf(scene.original, scene.originalCamera));
     }}, icon('refresh', 'sm'), 'Reset');
 
@@ -4935,19 +5289,31 @@ function buildFocus(scene) {
   const head = h('div', {class: 'scene-head'},
     h('div', {},
       h('div', {class: 'eyebrow', text: itemKind(job.items[i]) + (loneShort(job.items[i]) ? '' : ' · ' + position)}),
-      h('h2', {class: 'scene-title', text: loneShort(job.items[i]) ? shortTitle(job.items[i]) : cardLabel(scene)})),
+      h('h2', {class: 'scene-title', text: loneShort(job.items[i]) ? itemTitle(job.items[i]) : cardLabel(scene)})),
     ui.pill, h('span', {class: 'spacer'}),
     h('div', {class: 'head-tools'}, textSizeControl(), ui.reset));
+  // The page's own undo, not the textarea's: that one knew only the text.
+  // The line as it was is taken before each edit, and kept as an undo step
+  // only once the edit changed something (a Backspace at the very start
+  // changes nothing, and must not leave a step that undoes nothing).
+  let before = null;
+  ui.area.addEventListener('beforeinput', event => {
+    if (event.inputType.startsWith('history')) {
+      event.preventDefault();
+      stepLine(scene, event.inputType === 'historyUndo');
+      return;
+    }
+    before = {state: lineState(scene), run: event.inputType, caret: ui.area.selectionStart, at: Date.now()};
+  });
   ui.area.oninput = () => {
-    if (ui.area.value === scene.text) fitArea(); else retext(scene, ui.area.value);
+    if (ui.area.value === scene.text) fitArea();
+    else {
+      if (before) recordStep(scene.lineHistory, before.state, before.run, before.caret, before.at);
+      retext(scene, ui.area.value);
+    }
+    before = null;
     scene.lineHistory.caret = ui.area.selectionEnd;   // where the next keystroke continues the run
   };
-  // The page's own undo, not the textarea's: that one knew only the text.
-  ui.area.addEventListener('beforeinput', event => {
-    if (!event.inputType.startsWith('history')) return lineStep(scene, event.inputType);
-    event.preventDefault();
-    stepLine(scene, event.inputType === 'historyUndo');
-  });
   ui.area.addEventListener('keydown', event => {
     const key = event.key.toLowerCase();
     if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
@@ -5003,9 +5369,9 @@ function retext(scene, text, camera = shiftRanges(scene.camera, scene.text, text
 
 const lineState = scene => ({text: scene.text, camera: scene.camera,
                              sel: [ui.area.selectionStart, ui.area.selectionEnd]});
-// Before a change of the line: its state as an undo step (see recordStep).
-const lineStep = (scene, run) =>
-  recordStep(scene.lineHistory, lineState(scene), run, ui.area.selectionStart, Date.now());
+// Before a change of the line that is not typing (a mark, Reset, Rewrite):
+// its state as an undo step of its own.
+const lineStep = scene => recordStep(scene.lineHistory, lineState(scene), null, ui.area.selectionStart, Date.now());
 // Ctrl+Z (back) or Ctrl+Shift+Z / Ctrl+Y, while typing in the line.
 function stepLine(scene, back) {
   const step = takeStep(scene.lineHistory, lineState(scene), back);
@@ -5056,7 +5422,7 @@ function paintCamBar(scene) {
 function markLook(scene, look) {
   const {at, span} = camTarget(scene), [a, b] = at ? [at.start, at.end] : span || [];
   if (a === undefined) return;
-  lineStep(scene, null);
+  lineStep(scene);
   scene.camera = setLook(scene.text, scene.camera, a, b, look);
   ui.area.setSelectionRange(b, b);   // the caret in what was just marked
   paintPassages(scene);
@@ -5288,7 +5654,7 @@ function drawCheck(scene) {
         if (!confirm('This rewrites the scene to what the speech check ' +
                      'heard.\nThe STT can mishear words - check the new ' +
                      'text carefully afterwards.')) return;
-        lineStep(scene, null);
+        lineStep(scene);
         retext(scene, applyHeardText(scene.text, analysis.ops));
       }}, icon('refresh', 'sm'), 'Rewrite the scene to what was heard'));
   }
@@ -5472,16 +5838,19 @@ function buildAudio(scene) {
 
   let bar, middle;
   if (!scene.clips.length) {
-    ui.toolbar = ui.tools = null;
+    ui.toolbar = ui.tools = ui.speedBtn = null;
     bar = h('div', {class: 'dock-bar'}, rec, h('span', {class: 'spacer'}), ...files);
     middle = h('div', {class: 'tl-empty', text: 'No audio for this scene yet. Record a take (R), ' +
                                                 'or drop your recording files anywhere on this page.'});
   } else {
     ui.playBtn = tb('play', 'Play / pause (Space)', () => togglePlay(scene));
+    ui.speedBtn = h('button', {class: 'btn sm ghost speed-btn', onclick: () => cycleSpeed(scene),
+      title: 'Preview speed: 1×, 1.5×, 2× (the voice keeps its pitch). Only the preview: your takes stay as they are.'});
+    paintSpeed();
     ui.time = h('span', {class: 'time'});
     ui.info = h('span', {class: 'dock-info'});
     ui.toolbar = bar = h('div', {class: 'dock-bar'}, rec, sep(),
-      ui.playBtn, ui.time, sep(),
+      ui.playBtn, ui.speedBtn, ui.time, sep(),
       tb('scissors', 'Split at the playhead, or around the selection (S)', () => splitHere(scene)),
       tb('trash', 'Delete the selection, or the selected clip (Delete)', () => deleteSelection(scene)),
       tb('squeeze', 'Shorten long pauses (P)', () => openPauses(scene)),
@@ -6160,7 +6529,7 @@ function wireDrops() {
     if (ui.dock) ui.dock.classList.remove('dropping');
     const files = [...event.dataTransfer.files];
     if (!files.length) return;
-    if (!$('busy').hidden) { banner('Still opening your saved work. Drop the files again once it is open.'); return; }
+    if (!$('busy').hidden) { banner($('busyTitle').textContent + '… Drop the files again once it is done.'); return; }
     if (!job) return openFile(files[0]);
     const media = files.filter(f => MEDIA_EXT.includes(extOf(f.name)));
     if (media.length) addParts(current, media).catch(say);
@@ -6337,9 +6706,9 @@ function wire() {
     .observe($('focus'));
 
   // Everything else is already in the browser's session store; a take being
-  // recorded is not, until Stop.
+  // recorded is not, until Stop, and a zip being written is not done.
   window.addEventListener('beforeunload', event => {
-    if (recorder.phase === 'recording') { event.preventDefault(); event.returnValue = ''; }
+    if (recorder.phase === 'recording' || saving) { event.preventDefault(); event.returnValue = ''; }
   });
   wireDrops();
 
