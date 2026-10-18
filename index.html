@@ -4878,15 +4878,17 @@ function updateProgress() {
 const partName = (itemIdx, scene, k, part) =>
   'audio/' + itemIdx + '_' + scene.index + '_p' + (k + 1) + part.ext;
 
-// Every clip as the file that ships: whole clips are their sources as-is,
-// edited clips render to FLAC (memoized — a check already rendered them).
-async function materializeAll() {
-  const total = state.flat().reduce((sum, scene) => sum + scene.clips.length, 0);
+// The clips of the items that ship, as the files that ship: whole clips are
+// their sources as-is, edited clips render to FLAC (memoized — a check
+// already rendered them). An unfinished item is not prepared at all.
+// `plan[i]` is item i's, as in `state`.
+async function materializeItems(included) {
+  const total = included.flatMap(i => state[i]).reduce((sum, scene) => sum + scene.clips.length, 0);
   let done = 0;
   const plan = [];
-  for (const scenes of state) {
-    const row = [];
-    for (const scene of scenes) {
+  for (const i of included) {
+    const row = plan[i] = [];
+    for (const scene of state[i]) {
       const parts = [], heard = await heardOfScene(scene.clips);
       for (const [k, clip] of scene.clips.entries()) {
         saveProgress('Preparing audio ' + (++done) + ' of ' + total + '…');
@@ -4896,7 +4898,6 @@ async function materializeAll() {
       }
       row.push(parts);
     }
-    plan.push(row);
   }
   return plan;
 }
@@ -4956,7 +4957,7 @@ async function writeZip(draft, filename) {
   saveProgress('Getting the files ready…');
   if (mode === 'video') return writeVideoZip(draft, filename, handle);
   const included = exportedItems(state, draft);
-  const plan = await materializeAll();
+  const plan = await materializeItems(included);
   // The job rides in every zip, draft or finished: `return.json` alone has
   // no locale, no labels and no approved text, so without it a reopened zip
   // could not tell Reset what the script originally said. The desktop
