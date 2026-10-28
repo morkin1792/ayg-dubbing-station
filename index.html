@@ -42,6 +42,7 @@ try {
   --take-0: #0c9a8a; --take-1: #65a30d; --take-2: #059669;
   /* Passages said on camera */
   --cam: #8b5cf6; --cam-soft: rgba(139,92,246,.20);
+  --claim: rgba(245,158,11,.38);   /* strong claims: an amber highlighter */
   --sel: rgba(47,111,237,.20); --playhead: #10141b;
   --shadow: 0 1px 2px rgba(15,23,42,.05), 0 2px 6px rgba(15,23,42,.06);
   --shadow-lg: 0 18px 48px rgba(15,23,42,.18);
@@ -65,6 +66,7 @@ try {
     --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
     --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
     --cam: #b197fc; --cam-soft: rgba(177,151,252,.24);
+  --claim: rgba(246,189,59,.30);
     --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
     --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
     --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
@@ -83,6 +85,7 @@ try {
   --file-0: #6ea2ff; --file-1: #b197fc; --file-2: #4cc3f5;
   --take-0: #34d3bf; --take-1: #a3e635; --take-2: #4ade80;
   --cam: #b197fc; --cam-soft: rgba(177,151,252,.24);
+  --claim: rgba(246,189,59,.30);
   --sel: rgba(93,151,255,.24); --playhead: #f3f6fa;
   --shadow: 0 1px 2px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
   --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
@@ -338,6 +341,12 @@ mark.cam.small { text-decoration: underline dashed var(--cam) 2px; text-underlin
 .cam-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cam-btn.on { border-color: var(--cam); box-shadow: 0 0 0 2px var(--cam-soft); }
 .cam-hint { font-size: 12.5px; color: var(--text-3); }
+/* A strong claim: highlighted in amber, the whole word, "worth a second look". Not a
+   red underline, which reads as a misspelt word. */
+.read-marks mark.claim { color: transparent; border-radius: 3px; background: var(--claim);
+                         box-shadow: 0 0 0 2px var(--claim); }
+.claim-note { font-size: 13px; color: var(--text-2); padding: 0 26px 14px; }
+.claim-note:empty { display: none; }
 
 /* The docked player: bar + timeline, pinned under the scrolling page */
 .dock { position: relative; flex: none; background: var(--panel); border-top: 1px solid var(--line);
@@ -500,6 +509,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .key-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 6px; border-radius: 99px;
             border: 1px solid var(--line-2); font: 600 12px/1 var(--mono); }
 .key-chip i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
+.key-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); vertical-align: -1px; margin-right: 4px; }
 .key-chip button { border: 0; background: none; cursor: pointer; color: var(--text-3); padding: 2px; display: grid; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .modal-note { margin: 0 0 8px; color: var(--text-2); font-size: 13.5px; }
@@ -718,6 +728,8 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
         <h4>Reading</h4>
         <div class="set-row"><div class="lbl"><b>Text size</b><span id="readSizeLabel"></span></div></div>
         <input type="range" id="readSize" min="18" max="44" step="1">
+        <div class="set-row"><div class="lbl"><b>Highlight strong claims</b><span>Words like "never" or "the only", in case a sentence says more than it can prove</span></div>
+          <label class="switch"><input type="checkbox" id="optClaims"><span class="knob"></span></label></div>
       </div>
       <div class="set-group">
         <h4>Appearance</h4>
@@ -1983,17 +1995,41 @@ function nearestKey(cb, cr, keys) {
   }
   return {key: best, dist};
 }
+// A colour as the key compares it: [luma, cb, cr].
+const keySpace = (r, g, b) => [lumaOf(r, g, b), ...chromaOf(r, g, b)];
+const keyDistance = ([y, cb, cr], [ky, kcb, kcr]) => Math.hypot(cb - kcb, cr - kcr, KEY_LUMA * (y - ky));
 // The keys' colour is worked out once; the result is called per pixel.
 function makeKeyer(keys, tolerance) {
-  const prepared = keys.map(([r, g, b]) => [lumaOf(r, g, b), ...chromaOf(r, g, b)]);
+  const prepared = keys.map(([r, g, b]) => keySpace(r, g, b));
   const lo = tolerance / 100 * KEY_SPAN, ramp = KEY_SOFT_MIN + KEY_SOFT_SHARE * lo;
   return (r, g, b) => {
-    const y = lumaOf(r, g, b), [cb, cr] = chromaOf(r, g, b);
+    const pixel = keySpace(r, g, b);
     let dist = Infinity;
-    for (const [ky, kcb, kcr] of prepared)
-      dist = Math.min(dist, Math.hypot(cb - kcb, cr - kcr, KEY_LUMA * (y - ky)));
+    for (const key of prepared) dist = Math.min(dist, keyDistance(pixel, key));
     return clamp((dist - lo) / ramp, 0, 1);
   };
+}
+// Whether the room around the narrator is one plain colour (a wall, a cloth,
+// a dark room) that a green-screen key on that colour would cut out: with
+// removal off the face-cam shows that room as a box. Read on the crop's top
+// band and its side bands above the shoulders, where the narrator rarely is.
+// `pixels` is RGBA of a small copy of the crop. The colour as '#rrggbb', or null.
+const PLAIN_TOP = 0.2, PLAIN_SIDE = 0.15, PLAIN_SIDE_DOWN = 0.7;
+const PLAIN_DIST = 20;      // key distance from the band's median colour
+const PLAIN_SHARE = 0.85;   // of the band's pixels that must be that close
+function plainBackground(pixels, width, height) {
+  const band = [];
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const inSide = y < height * PLAIN_SIDE_DOWN && (x < width * PLAIN_SIDE || x >= width * (1 - PLAIN_SIDE));
+      if (y < height * PLAIN_TOP || inSide) band.push(4 * (y * width + x));
+    }
+  if (!band.length) return null;
+  const median = [0, 1, 2].map(c => band.map(i => pixels[i + c]).sort((a, b) => a - b)[band.length >> 1]);
+  const key = keySpace(...median);
+  const close = band.filter(i => keyDistance(keySpace(pixels[i], pixels[i + 1], pixels[i + 2]), key) <= PLAIN_DIST);
+  if (close.length < PLAIN_SHARE * band.length) return null;
+  return '#' + median.map(v => v.toString(16).padStart(2, '0')).join('');
 }
 const keyAlpha = (r, g, b, keys, tolerance) => makeKeyer(keys, tolerance)(r, g, b);
 // The screen's colour bleeds into the edges it lights; a partly transparent
@@ -2253,6 +2289,23 @@ function takeStep(memo, state, back) {
   (back ? memo.redo : memo.undo).push(state);
   memo.run = null;
   return step;
+}
+
+// ---------------------------------------------------------- strong claims (pure) ---
+// Words the job lists as strong claims ("never", "don't exist"...), so the
+// reader can soften a sentence before recording it. [start, end] of each in
+// `text`: case ignored, a straight apostrophe matching a curly one, a
+// contraction however it is written ("don't" / "dont" / "do not"), any
+// spacing between words, whole words only, anywhere in a language written
+// without spaces (`charBased`). The desktop's `strong_claim_spans` is its twin.
+const CLAIM_PIECES = {"n't": "(?:n['’]?t|\\s+not)", "n’t": "(?:n['’]?t|\\s+not)", "'": "['’]", '’': "['’]", ' ': '\\s+'};
+const claimPattern = word => word.split(/(n['’]t|['’]| )/)
+  .map(piece => CLAIM_PIECES[piece] || piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('');
+function claimSpans(text, words, charBased) {
+  if (!Array.isArray(words) || !words.length) return [];
+  const alternation = [...words].sort((a, b) => b.length - a.length).map(claimPattern).join('|');
+  const pattern = charBased ? alternation : '(?<![\\p{L}\\p{N}_])(?:' + alternation + ')(?![\\p{L}\\p{N}_])';
+  return [...text.matchAll(new RegExp(pattern, 'giu'))].map(m => [m.index, m.index + m[0].length]);
 }
 
 // ---------------------------------------------------------------- sources ---
@@ -3664,7 +3717,8 @@ function wireFloat() {
 // take's source, `media` the preview's video showing it, `shape` the frame's
 // shape (null: Custom).
 const camEdit = {setup: null, deviceId: '', drag: null, picking: false, raf: 0, last: 0,
-                 take: null, media: null, shape: 1};
+                 take: null, media: null, shape: 1, plain: null, plainAt: 0, plainCanvas: null};
+const PLAIN_EVERY = 1000;   // ms between plain-background reads in the setup
 const HANDLE = 14;   // CSS px around a corner that grabs it
 const editMedia = () => camEdit.take ? camEdit.media : cam.video;
 const editFrame = () => camEdit.take ? camEdit.take.video.frame : cam.frame;
@@ -3672,6 +3726,7 @@ function showCameraLayer(kind) {
   $('cameraLayer').dataset.kind = kind;
   $('camTitle').textContent = kind === 'take' ? 'Frame "' + stem(camEdit.take.name) + '"' : 'Camera setup';
   camEdit.picking = false;
+  camEdit.plain = null;
   $('cameraLayer').hidden = false;
   paintCameraSetup();
   if (!camEdit.raf) camEdit.raf = requestAnimationFrame(cameraSetupTick);
@@ -3734,11 +3789,19 @@ function paintCameraSetup() {
     button.setAttribute('aria-checked', on);
   });
   $('camGreen').hidden = bg.mode !== 'green';
-  $('camBgNote').textContent = {
+  const plain = bg.mode === 'none' && camEdit.plain;
+  $('camBgNote').className = 'cam-note' + (plain ? ' warn' : '');
+  $('camBgNote').replaceChildren(...(plain ? [icon('warn', 'sm'), h('span', {},
+    'The room behind you looks like one plain colour (', h('i', {class: 'key-swatch', style: 'background:' + plain}),
+    plain + '). With "Green screen" on that colour you would be cut out of it instead of shown in a box. ',
+    h('button', {type: 'button', class: 'btn sm', text: 'Use it', onclick: () => {
+      camEdit.setup.background = {mode: 'green', colors: [plain], tolerance: 10};
+      paintCameraSetup();
+    }}))] : [h('span', {text: {
     none: 'The face-cam shows the frame as it is.',
     green: 'Pick the screen colour where it is lit and where it is shaded, then raise the tolerance until the screen is gone. At 0 % only the picked colours go.',
     ai: 'An AI model finds you in the image; no screen needed. The preview here is lighter than the final cut-out.',
-  }[bg.mode];
+  }[bg.mode]})]));
   if (bg.mode === 'green') {
     $('camKeys').replaceChildren(...(bg.colors || []).map((hex, k) => h('span', {class: 'key-chip'},
       h('i', {style: 'background:' + hex}), hex,
@@ -3801,6 +3864,22 @@ function measurePictureRate(now) {
   $('camRate').className = 'cam-note' + (low ? ' warn' : '');
   $('camRate').replaceChildren(...(low ? [icon('warn', 'sm')] : []), h('span', {text}));
 }
+// Reads the crop's room once in a while (a 64x64 copy, no cost to notice)
+// and repaints the background note when the answer changes. Only with
+// removal off: a plain room is then shown as a box behind the narrator.
+function readPlainBackground(video) {
+  let plain = null;
+  if (camEdit.setup.background.mode === 'none') {
+    const c = camEdit.plainCanvas || (camEdit.plainCanvas = Object.assign(document.createElement('canvas'), {width: 64, height: 64}));
+    const ctx = c.getContext('2d', {willReadFrequently: true}), [x, y, w, h] = camEdit.setup.crop;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    ctx.drawImage(video, x * vw, y * vh, w * vw, h * vh, 0, 0, 64, 64);
+    plain = plainBackground(ctx.getImageData(0, 0, 64, 64).data, 64, 64);
+  }
+  if (plain === camEdit.plain) return;
+  camEdit.plain = plain;
+  paintCameraSetup();
+}
 function cameraSetupTick(now) {
   camEdit.raf = requestAnimationFrame(cameraSetupTick);
   if (!camEdit.take) measurePictureRate(now);
@@ -3808,6 +3887,10 @@ function cameraSetupTick(now) {
   camEdit.last = now;
   const video = editMedia(), canvas = $('camCanvas');
   if (!video || !video.videoWidth) return;
+  if (now - camEdit.plainAt >= PLAIN_EVERY) {
+    camEdit.plainAt = now;
+    readPlainBackground(video);
+  }
   if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -5338,7 +5421,9 @@ function buildFocus(scene) {
     h('div', {class: 'cam-tools'}, ...ui.camLooks, ui.camOff,
       h('span', {class: 'cam-hint', text: 'Select text to mark it. A mark covers whole sentences.'})));
   for (const type of ['select', 'keyup', 'mouseup', 'focus', 'blur']) ui.area.addEventListener(type, () => paintCamBar(scene));
-  const reading = h('div', {class: 'card reading'}, h('div', {class: 'read-wrap'}, ui.marks, ui.area), ui.camBar);
+  ui.claimNote = h('div', {class: 'claim-note'});
+  const reading = h('div', {class: 'card reading'}, h('div', {class: 'read-wrap'}, ui.marks, ui.area),
+                    ui.claimNote, ui.camBar);
 
   ui.dock = h('div', {class: 'dock'});
   buildAudio(scene);
@@ -5385,15 +5470,34 @@ function stepLine(scene, back) {
 // Video jobs of a channel showing the face-cam on passages only; audio only
 // shows none of it.
 const marksOn = () => mode === 'video' && !!(job && job.camera && job.camera.moments);
+const claimsOn = () => prefs.flag('read.claims', true) && !!(job && job.strong_claims && job.strong_claims.length);
 function paintPassages(scene) {
   const on = marksOn(), parts = [];
   ui.camBar.classList.toggle('hidden', !on);
+  const claims = claimsOn() ? claimSpans(scene.text, job.strong_claims,
+                                         ['ja', 'zh'].includes(job.locale.split('-')[0])) : [];
+  // The text from..to, its strong claims highlighted (a claim crossing the
+  // edge of a passage is cut there, each side keeping its line).
+  const withClaims = (from, to) => {
+    const out = [];
+    let at = from;
+    for (const [a, b] of claims) {
+      const start = Math.max(a, from), end = Math.min(b, to);
+      if (start >= end) continue;
+      out.push(scene.text.slice(at, start), h('mark', {class: 'claim'}, scene.text.slice(start, end)));
+      at = end;
+    }
+    return [...out, scene.text.slice(at, to)];
+  };
   let at = 0;
   for (const r of on ? scene.camera : []) {
-    parts.push(scene.text.slice(at, r.start), h('mark', {class: 'cam ' + r.look, text: scene.text.slice(r.start, r.end)}));
+    parts.push(...withClaims(at, r.start), h('mark', {class: 'cam ' + r.look}, ...withClaims(r.start, r.end)));
     at = r.end;
   }
-  ui.marks.replaceChildren(...parts, scene.text.slice(at));
+  ui.marks.replaceChildren(...parts, ...withClaims(at, scene.text.length));
+  const found = [...new Set(claims.map(([a, b]) => scene.text.slice(a, b).toLowerCase()))];
+  ui.claimNote.textContent = found.length
+    ? 'Strong claims highlighted: ' + found.join(', ') + '. Still true as said?' : '';
   // Reset arms on ANY change from the job: the words, or (where shown) the marks.
   ui.reset.classList.toggle('invisible', scene.text === scene.original && !(on && marksChanged(scene)));
   const repeated = on ? repeatedPassages(scene.text, scene.camera) : [];
@@ -6674,6 +6778,11 @@ function wire() {
     };
   }
   $('micSelect').onchange = () => prefs.set('rec.device', $('micSelect').value);
+  $('optClaims').checked = prefs.flag('read.claims', true);
+  $('optClaims').onchange = () => {
+    prefs.set('read.claims', $('optClaims').checked ? '1' : '0');
+    if (current) paintPassages(current);
+  };
 
   $('settingsBtn').onclick = openSettings;
   $('keysBtn').onclick = openKeys;
